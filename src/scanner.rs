@@ -131,11 +131,75 @@ impl Scanner {
             }
             ' ' | '\r' | '\t' => {}
             '\n' => self.line += 1,
-            _ => self.err = Some(format!("scanner can't handle {}", c)) 
+            '"' => self.string(),
+            _ => {
+                if Scanner::is_decimal_digit(c){
+                    self.number()
+                } else {
+                    self.err = Some(format!("scanner can't handle {}", c))
+                }
+            }
         }
         unimplemented!()
     }
 
+    fn is_decimal_digit(c: char) -> bool {
+        c.is_digit(10)
+    }
+
+    fn number(&mut self) {
+        while Scanner::is_decimal_digit(self.peek()) {
+            self.advance();
+        }
+
+        if self.peek() == '.' && Scanner::is_decimal_digit(self.peek_next()) {
+            self.advance();
+        }
+
+        while Scanner::is_decimal_digit(self.peek()) {
+            self.advance();
+        }
+
+        let val: f64 = String::from_utf8(self.source[self.start..self.current].to_vec())
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        self.add_token_literal(TokenType::Number, Some(Literal::Number(val)))
+    }
+
+    fn string(&mut self){
+        while self.peek() != '"' &&  !self.is_at_end() {
+            if self.peek() == '\n' {
+                self.line += 1
+            }
+            self.advance();
+        }
+
+        if self.is_at_end() {
+            self.err = Some(format!("unterminated string at line {}", self.line))
+        }
+
+        assert!(self.peek() == '"');
+
+        self.advance();
+
+        self.add_token_literal(
+            TokenType::String,
+            Some(Literal::Str(
+                    String::from_utf8(self.source[self.start + 1..self.current - 1].to_vec()).unwrap(),
+                )),
+            )
+    }
+
+    fn peek_next(&self) -> char {
+        if self.current + 1 >= self.source.len() {
+            '\0'
+        } else {
+            char::from(self.source[self.current + 1])
+        }
+    }
+        
     fn peek(&self) -> char {
         if self.is_at_end() {
             '\0'
