@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use std::collections::HashMap;
+
+#[derive(Debug, Copy, Clone)]
 pub enum TokenType{
     LeftParen, RightParen, LeftBrace, RightBrace, 
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -29,6 +31,7 @@ pub struct Token{
     lexeme: Vec<u8>,
     literal: Option<Literal>,
     line: usize,
+   
 }
 
 pub fn scan_tokens(input: String) -> Result<Vec<Token>, String>{
@@ -49,6 +52,7 @@ struct Scanner {
     start: usize,
     current: usize,
     line: usize,
+    keywords: HashMap<String, TokenType>,
 }
 
 impl Default for Scanner {
@@ -59,7 +63,28 @@ impl Default for Scanner {
             err: None,
             start: 0,
             current: 0,
-            line: 1
+            line: 1,
+            keywords: vec![
+            ("and", TokenType::And),
+            ("class", TokenType::Class),
+            ("else", TokenType::Else),
+            ("false", TokenType::False),
+            ("for", TokenType::For),
+            ("fun", TokenType::Fun),
+            ("if", TokenType::If),
+            ("nil", TokenType::Nil),
+            ("or", TokenType::Or),
+            ("print", TokenType::Print),
+            ("return", TokenType::Return),
+            ("super", TokenType::Super),
+            ("this", TokenType::This),
+            ("true", TokenType::True),
+            ("var", TokenType::Var),
+            ("while", TokenType::While),
+            ]
+            .into_iter()
+            .map(|(k, v)| (String::from(k), v))
+            .collect(),                                                                                                                                                                                                                                                                                
         }
     }
 }
@@ -135,6 +160,8 @@ impl Scanner {
             _ => {
                 if Scanner::is_decimal_digit(c){
                     self.number()
+                } else if Scanner::is_alpha(c) {
+                    self.identifier()
                 } else {
                     self.err = Some(format!("scanner can't handle {}", c))
                 }
@@ -143,14 +170,46 @@ impl Scanner {
         unimplemented!()
     }
 
+    fn is_alpha(c: char) -> bool {
+        c.is_alphabetic()
+    }
+
     fn is_decimal_digit(c: char) -> bool {
         c.is_digit(10)
+    }
+
+    fn is_alphanumeric(c: char) -> bool {
+        Scanner::is_alpha(c) || Scanner::is_decimal_digit(c)
+    }
+
+    fn identifier(&mut self) {
+        while Scanner::is_alphanumeric(self.peek()) {
+            self.advance();
+        }
+
+        let literal_val =
+            String::from_utf8(self.source[self.start..self.current].to_vec()).unwrap();
+
+            let token_type = match self.keywords.get(&literal_val) {
+                Some(kw_token_type) => *kw_token_type,
+                None => TokenType::Identifier,
+            };
+    
+            match token_type {
+                TokenType::Identifier => self.add_token_literal(
+                    TokenType::Identifier,
+                    Some(Literal::Identifier(literal_val)),
+                ), 
+                _ => self.add_token(token_type),
+            }
     }
 
     fn number(&mut self) {
         while Scanner::is_decimal_digit(self.peek()) {
             self.advance();
         }
+        
+
 
         if self.peek() == '.' && Scanner::is_decimal_digit(self.peek_next()) {
             self.advance();
