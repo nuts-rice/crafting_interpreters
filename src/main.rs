@@ -2,6 +2,8 @@ use std::env;
 use std::fs;
 
 mod scanner;
+mod expr;
+mod parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,8 +12,8 @@ fn main() {
         return println!("Expected file input arg");
     }
 
-        let text = scanner::scan_tokens(fs::read_to_string(&args[1]).unwrap());
-        match text{
+        
+        match scanner::scan_tokens(fs::read_to_string(&args[1]).unwrap()){
             Ok(tokens) => for t in tokens {println!("{:?}", t)}
             Err(err) => println!("lexical error : {}", err)
         }

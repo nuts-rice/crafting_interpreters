@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub enum TokenType{
     LeftParen, RightParen, LeftBrace, RightBrace, 
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -27,10 +27,10 @@ pub enum Literal{
 
 #[derive(Debug)]
 pub struct Token{
-    ty: TokenType,
-    lexeme: Vec<u8>,
-    literal: Option<Literal>,
-    line: usize,
+    pub ty: TokenType,
+    pub lexeme: Vec<u8>,
+    pub literal: Option<Literal>,
+    pub line: usize,
    
 }
 
@@ -167,7 +167,6 @@ impl Scanner {
                 }
             }
         }
-        unimplemented!()
     }
 
     fn is_alpha(c: char) -> bool {
