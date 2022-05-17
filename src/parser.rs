@@ -6,14 +6,32 @@ use std::fmt;
 #[allow(dead_code)]
 #[derive(Default)]
 
-pub struct Parser{
+struct Parser{
     tokens: Vec<scanner::Token>,
     current: usize,
     err: Option<String>,
 }
 
+pub fn parse(tokens: Vec<scanner::Token>) -> Result<expr::Expr, String>{
+    let mut p = Parser{
+        tokens: tokens,
+            ..Default::default()
+    };
+
+    let expr = p.parse();
+
+    match p.err{
+        Some(err) => Err(err),
+        None => Ok(expr),
+    }
+}
+
 impl Parser {
-    #[allow(dead_code)]
+    pub fn parse(&mut self) -> expr::Expr{
+        self.expression()
+    }
+
+
     fn expression(&mut self) -> expr::Expr {
         self.equality()
     }
@@ -153,12 +171,14 @@ impl Parser {
         if self.check(tok) {
             self.advance();
         }
-        self.err = Some(format!(
-                "Expected token type {:?}, but found token {:?}: {}",
-                tok,
-                self.peek(),
-                on_err_str
-                ))
+        else {
+            self.err = Some(format!(
+                    "Expected token type {:?}, but found token {:?}: {}",
+                    tok,
+                    self.peek(),
+                    on_err_str
+                    ))
+        }
     }
 
     fn op_token_to_unary_op(tok: scanner::TokenType) -> Result<expr::UnaryOp, String> {

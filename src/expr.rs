@@ -1,6 +1,7 @@
 //Syntax, grammar tree
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum Expr{
     Literal(Literal),
     Unary(UnaryOp, Box<Expr>),
@@ -10,7 +11,7 @@ pub enum Expr{
 
 //single operand
 #[allow(dead_code)]
-
+#[derive(Debug)]
 pub enum UnaryOp{
     Minus,
     Bang,
@@ -18,6 +19,7 @@ pub enum UnaryOp{
 
 //two operands
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum BinaryOp{
     EqualEqual,
     NotEqual,
@@ -32,6 +34,7 @@ pub enum BinaryOp{
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum Literal{
     Number(f64),
     String(String),
