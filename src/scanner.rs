@@ -31,7 +31,7 @@ pub struct Token{
     pub lexeme: Vec<u8>,
     pub literal: Option<Literal>,
     pub line: usize,
-   
+    pub col: i64,  
 }
 
 pub fn scan_tokens(input: String) -> Result<Vec<Token>, String>{
@@ -52,6 +52,7 @@ struct Scanner {
     start: usize,
     current: usize,
     line: usize,
+    col: i64,
     keywords: HashMap<String, TokenType>,
 }
 
@@ -64,6 +65,7 @@ impl Default for Scanner {
             start: 0,
             current: 0,
             line: 1,
+            col: -1,
             keywords: vec![
             ("and", TokenType::And),
             ("class", TokenType::Class),
@@ -104,6 +106,7 @@ impl Scanner {
                 lexeme: Vec::new(),
                 literal: None,
                 line: self.line,
+                col: self.col,
             }),
         }
     }
@@ -111,6 +114,7 @@ impl Scanner {
             
     fn advance(&mut self) -> char{
         self.current += 1;
+        self.col += 1;
         
         char::from(self.source[self.current - 1 ])
     }
@@ -155,7 +159,10 @@ impl Scanner {
                 }
             }
             ' ' | '\r' | '\t' => {}
-            '\n' => self.line += 1,
+            '\n' => {
+                self.line += 1;
+                self.col = 0
+            }
             '"' => self.string(),
             _ => {
                 if Scanner::is_decimal_digit(c){
@@ -277,7 +284,9 @@ impl Scanner {
         self.tokens.push(Token{ ty: token_type,
                                 lexeme : text,
                                 literal,
-                                line: self.line })
+                                line: self.line,
+                                col: self.col,
+        })
     }
     
 //only consume character if it matches branch for next char    
@@ -291,6 +300,7 @@ impl Scanner {
         }   
 
         self.current += 1;
+        self.col += 1;
         true
     }
 

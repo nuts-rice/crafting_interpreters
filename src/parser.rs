@@ -1,43 +1,44 @@
 use crate::expr;
 use crate::scanner;
 
-use std::fmt;
-
-#[allow(dead_code)]
 #[derive(Default)]
-
 struct Parser{
     tokens: Vec<scanner::Token>,
     current: usize,
-    err: Option<String>,
 }
 
 pub fn parse(tokens: Vec<scanner::Token>) -> Result<expr::Expr, String>{
     let mut p = Parser{
-        tokens: tokens,
+        tokens,
             ..Default::default()
     };
 
-    let expr = p.parse();
+    let expr_or_err = p.parse();
 
-    match p.err{
-        Some(err) => Err(err),
-        None => Ok(expr),
+    match expr_or_err{
+        Ok(expr) => {
+             if !p.is_at_end() {
+                Err(format!("Unexpected {:?}", p.tokens[p.current]))
+            } else {
+                Ok(expr)
+            }
+        }
+        Err(err) => Err(err),
     }
 }
 
 impl Parser {
-    pub fn parse(&mut self) -> expr::Expr{
+    pub fn parse(&mut self) -> Result<expr::Expr, String> {
         self.expression()
     }
 
 
-    fn expression(&mut self) -> expr::Expr {
+    fn expression(&mut self) -> Result<expr::Expr, String> {
         self.equality()
     }
 
-    fn comparison(&mut self) -> expr::Expr {
-        let expr = self.addition();
+    fn comparison(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.addition()?;
 
         while self.match_one_of(vec![
             scanner::TokenType::Greater,
@@ -46,95 +47,91 @@ impl Parser {
             scanner::TokenType::LessEqual,
         ]){
             let operator_token: scanner::TokenType = self.previous().ty;
-            let right = Box::new(self.addition());
+            let right = Box::new(self.addition()?);
 
             let binop_maybe = Parser::op_token_to_binop(operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
-                    return expr::Expr::Binary(left, binop, right);
+                    expr = expr::Expr::Binary(left, binop, right);
                 }
-                Err(err) => {
-                    self.err = Some(err);
-                }
+                Err(err) => return Err(err),
             }
         }
-        expr
-            
+        Ok(expr)    
     }
 
-    fn addition(&mut self) -> expr::Expr {
-        let expr = self.multiplication();
+            
+    
+
+    fn addition(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.multiplication()?;
 
         while self.match_one_of(vec![scanner::TokenType::Minus, scanner::TokenType::Plus]) {
             let operator_token: scanner::TokenType = self.previous().ty;
-            let right = Box::new(self.multiplication());
+            let right = Box::new(self.multiplication()?);
 
             let binop_maybe = Parser::op_token_to_binop(operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
-                    return expr::Expr::Binary(left, binop, right);
+                    expr = expr::Expr::Binary(left, binop, right);
+                    
                 }
-                Err(err) => {
-                    self.err = Some(err);
-                }
+                Err(err) => return Err(err),
             }
         }
-        expr
+    
+        Ok(expr)
     }
 
-    fn multiplication(&mut self) -> expr::Expr {
-        let expr = self.unary();
+    fn multiplication(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.unary()?;
         while self.match_one_of(vec![scanner::TokenType::Slash, scanner::TokenType::Star]) {
             let operator_token: scanner::TokenType = self.previous().ty;
-            let right = Box::new(self.unary());
+            let right = Box::new(self.unary()?);
 
             let binop_maybe = Parser::op_token_to_binop(operator_token);
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
-                    return expr::Expr::Binary(left, binop, right);
+                    expr = expr::Expr::Binary(left, binop, right);
                 }
-                Err(err) => {
-                    self.err = Some(err);
-                }
+                Err(err) => return Err(err),
             }
         }
-        expr
+        Ok(expr)      
     }
 
-    fn unary(&mut self) -> expr::Expr {
+    fn unary(&mut self) -> Result<expr::Expr, String> {
         if self.match_one_of(vec![scanner::TokenType::Bang, scanner::TokenType::Minus]) {
             let operator_token: scanner::TokenType = self.previous().ty;
-            let right = Box::new(self.unary());
+            let right = Box::new(self.unary()?);
             let unary_op_maybe = Parser::op_token_to_unary_op(operator_token);
-            match unary_op_maybe {
-                Ok(unary_op) => {
-                    return expr::Expr::Unary(unary_op, right);
-                }
-                Err(err) => self.err = Some(err),
-            }
+            return match unary_op_maybe {
+                Ok(unary_op) => Ok(expr::Expr::Unary(unary_op, right)),
+                Err(err) => Err(err),
+            };
         }
         self.primary()
     }
 
-    fn primary(&mut self) -> expr::Expr{
+    fn primary(&mut self) -> Result<expr::Expr, String>{
         if self.matches(scanner::TokenType::False){
-            return expr::Expr::Literal(expr::Literal::False);
+            return Ok(expr::Expr::Literal(expr::Literal::False));
         }
         if self.matches(scanner::TokenType::True){
-            return expr::Expr::Literal(expr::Literal::True);
+            return Ok(expr::Expr::Literal(expr::Literal::True));
         }
         if self.matches(scanner::TokenType::Nil){
-            return expr::Expr::Literal(expr::Literal::Nil);
+            return Ok(expr::Expr::Literal(expr::Literal::Nil));
         }
         if self.matches(scanner::TokenType::Number){
             match &self.previous().literal{
                 Some(scanner::Literal::Number(n)) => {
-                    return expr::Expr::Literal(expr::Literal::Number(*n))
+                    return Ok(expr::Expr::Literal(expr::Literal::Number(*n)))
                 }
                 Some(l) => panic!(
                    "internal error in parser: while parsing number, found literal {:?}",
@@ -146,7 +143,7 @@ impl Parser {
         if self.matches(scanner::TokenType::String){
             match &self.previous().literal{
                 Some(scanner::Literal::Str(s)) => {
-                    return expr::Expr::Literal(expr::Literal::String(s.clone()))
+                    return Ok(expr::Expr::Literal(expr::Literal::String(s.clone())))
                 }
                 Some(l) => panic!(
                     "internal error in parser: when parsing string, found literal {:?}",
@@ -156,30 +153,34 @@ impl Parser {
             }
         }
         if self.matches(scanner::TokenType::LeftParen) {
-            let expr = Box::new(self.expression());
-            self.consume(
+            let expr = Box::new(self.expression()?);
+            match self.consume(
                 scanner::TokenType::RightParen,
                 "Expected ')' after expression.",
-                );
-            return expr::Expr::Grouping(expr);
+            ) {
+                    Err(err) => return Err(err),
+                    _ => {}
+            }
+            return Ok(expr::Expr::Grouping(expr));
         }
-        self.err = Some(format!("Expected expression at {:?}", self.peek()));
-        expr::Expr::Literal(expr::Literal::Nil)
+        Err(format!("Expected ezxpression at {:?}", self.peek()))
     }
+    
 
-    fn consume(&mut self, tok: scanner::TokenType, on_err_str: &str){
+
+    fn consume(&mut self, tok: scanner::TokenType, on_err_str: &str) -> Result<&scanner::Token, String>
+    {
         if self.check(tok) {
-            self.advance();
+            return Ok(self.advance());
         }
-        else {
-            self.err = Some(format!(
-                    "Expected token type {:?}, but found token {:?}: {}",
-                    tok,
-                    self.peek(),
-                    on_err_str
-                    ))
-        }
+        Err(format!("Expected token type {:?}, but found token {:?}: {}",
+                tok,
+                self.peek(),
+                on_err_str
+                ))
     }
+                
+    
 
     fn op_token_to_unary_op(tok: scanner::TokenType) -> Result<expr::UnaryOp, String> {
         match tok {
@@ -190,29 +191,27 @@ impl Parser {
     }
 
 
-    fn equality(&mut self) -> expr::Expr {
-        let expr = self.comparison();
+    fn equality(&mut self) -> Result<expr::Expr, String> {
+        let expr = self.comparison()?;
 
         while self.match_one_of(vec![
                                 scanner::TokenType::BangEqual,
                                 scanner::TokenType::EqualEqual,
         ]) {
             let operator_token: scanner::TokenType = self.previous().ty;
-            let right = Box::new(self.comparison());
+            let right = Box::new(self.comparison()?);
 
             let binop_maybe = Parser::op_token_to_binop(operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
-                    return expr::Expr::Binary(left, binop, right);
+                    return Ok(expr::Expr::Binary(left, binop, right));
                 }
-                Err(err) => {
-                    self.err = Some(err);
-                }
+                Err(err) => return Err(err),
             }
         }
-        expr
+        Ok(expr)
     }
            
 
@@ -267,7 +266,7 @@ impl Parser {
     }
 
     fn is_at_end(&self) -> bool {
-        self.peek().ty == scanner::TokenType::Eof || self.err.is_some()
+        self.peek().ty == scanner::TokenType::Eof 
     }
 
     fn peek(&self) -> &scanner::Token {
@@ -278,6 +277,12 @@ impl Parser {
         &self.tokens[self.current - 1]
     }
 }
+
+
+
+    
+
+
 
 
 
