@@ -4,6 +4,7 @@ use std::fs;
 mod scanner;
 mod expr;
 mod parser;
+mod interpreter;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -19,21 +20,29 @@ fn main() {
                 for t in &tokens {
                     println!("{:?}", t)
                 }
-                println!("{:#?}", scanner::TokenType::LeftParen);
+                println!();
 
                 let expr_maybe = parser::parse(tokens);
 
                 match expr_maybe{
-                    Ok(expr) => println!("ast:\n{:#?}", expr),
-                    Err(err) => println!("parse error: {}", err),
+                    Ok(expr) => {
+                        println!("ast:\n{:#?}", expr);
+                        let interpret_res = interpreter::interpret(&expr);
+                        println()!;
+                        match interpret_res{
+                            Ok(val) => println!("Result:\n{}", val),
+                            Err(err) => println!("Intreprter error:\n{}", err),
+                        }    
+                    
+                    }
+                    Err(err) => println!("Parse error: {}", err),
                 }
             }
-               
-            Err(err) => println!("lexical error : {}", err)
-        }
+            Err(err) => println!("lexical error: {}", err),
+    }
 }
-            
-
-
     
-
+ 
+          
+    
+        
