@@ -1,48 +1,77 @@
 use std::collections::HashMap;
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
-pub enum TokenType{
-    LeftParen, RightParen, LeftBrace, RightBrace, 
-    Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
+pub enum TokenType {
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    Semicolon,
+    Slash,
+    Star,
 
-    Bang, BangEqual,
-    Equal, EqualEqual,
-    Greater, GreaterEqual,
-    Less, LessEqual,
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
-    Identifier, String, Number,
+    Identifier,
+    String,
+    Number,
 
-    And, Class, Else, False, Fun, For, If, Nil, Or, 
-    Print, Return, Super, This, True, Var, While,
+    And,
+    Class,
+    Else,
+    False,
+    Fun,
+    For,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
 
-    Eof
+    Eof,
 }
 
-#[derive(Debug)]
-pub enum Literal{
+#[derive(Debug, Clone)]
+pub enum Literal {
     Identifier(String),
     Str(String),
-    Number(f64)
+    Number(f64),
 }
 
-#[derive(Debug)]
-pub struct Token{
+#[derive(Debug, Clone)]
+pub struct Token {
     pub ty: TokenType,
     pub lexeme: Vec<u8>,
     pub literal: Option<Literal>,
     pub line: usize,
-    pub col: i64,  
+    pub col: i64,
 }
 
-pub fn scan_tokens(input: String) -> Result<Vec<Token>, String>{
-    let mut scanner : Scanner = Default::default();
+pub fn scan_tokens(input: String) -> Result<Vec<Token>, String> {
+    let mut scanner: Scanner = Default::default();
 
     scanner.scan_tokens(input);
 
     match scanner.err {
         Some(err) => Err(err),
         None => Ok(scanner.tokens),
-    }   
+    }
 }
 
 struct Scanner {
@@ -67,26 +96,26 @@ impl Default for Scanner {
             line: 1,
             col: -1,
             keywords: vec![
-            ("and", TokenType::And),
-            ("class", TokenType::Class),
-            ("else", TokenType::Else),
-            ("false", TokenType::False),
-            ("for", TokenType::For),
-            ("fun", TokenType::Fun),
-            ("if", TokenType::If),
-            ("nil", TokenType::Nil),
-            ("or", TokenType::Or),
-            ("print", TokenType::Print),
-            ("return", TokenType::Return),
-            ("super", TokenType::Super),
-            ("this", TokenType::This),
-            ("true", TokenType::True),
-            ("var", TokenType::Var),
-            ("while", TokenType::While),
+                ("and", TokenType::And),
+                ("class", TokenType::Class),
+                ("else", TokenType::Else),
+                ("false", TokenType::False),
+                ("for", TokenType::For),
+                ("fun", TokenType::Fun),
+                ("if", TokenType::If),
+                ("nil", TokenType::Nil),
+                ("or", TokenType::Or),
+                ("print", TokenType::Print),
+                ("return", TokenType::Return),
+                ("super", TokenType::Super),
+                ("this", TokenType::This),
+                ("true", TokenType::True),
+                ("var", TokenType::Var),
+                ("while", TokenType::While),
             ]
             .into_iter()
             .map(|(k, v)| (String::from(k), v))
-            .collect(),                                                                                                                                                                                                                                                                                
+            .collect(),
         }
     }
 }
@@ -101,7 +130,7 @@ impl Scanner {
 
         match self.err {
             Some(_) => {}
-            None => self.tokens.push(Token { 
+            None => self.tokens.push(Token {
                 ty: TokenType::Eof,
                 lexeme: Vec::new(),
                 literal: None,
@@ -110,15 +139,14 @@ impl Scanner {
             }),
         }
     }
-                
-            
-    fn advance(&mut self) -> char{
+
+    fn advance(&mut self) -> char {
         self.current += 1;
         self.col += 1;
-        
-        char::from(self.source[self.current - 1 ])
+
+        char::from(self.source[self.current - 1])
     }
-    
+
     fn scan_token(&mut self) {
         let c = self.advance();
 
@@ -144,7 +172,7 @@ impl Scanner {
             '<' => {
                 let matches_eq = self.matches('=');
                 self.add_token(if matches_eq {
-                    TokenType:: GreaterEqual
+                    TokenType::GreaterEqual
                 } else {
                     TokenType::Greater
                 })
@@ -165,7 +193,7 @@ impl Scanner {
             }
             '"' => self.string(),
             _ => {
-                if Scanner::is_decimal_digit(c){
+                if Scanner::is_decimal_digit(c) {
                     self.number()
                 } else if Scanner::is_alpha(c) {
                     self.identifier()
@@ -196,26 +224,24 @@ impl Scanner {
         let literal_val =
             String::from_utf8(self.source[self.start..self.current].to_vec()).unwrap();
 
-            let token_type = match self.keywords.get(&literal_val) {
-                Some(kw_token_type) => *kw_token_type,
-                None => TokenType::Identifier,
-            };
-    
-            match token_type {
-                TokenType::Identifier => self.add_token_literal(
-                    TokenType::Identifier,
-                    Some(Literal::Identifier(literal_val)),
-                ), 
-                _ => self.add_token(token_type),
-            }
+        let token_type = match self.keywords.get(&literal_val) {
+            Some(kw_token_type) => *kw_token_type,
+            None => TokenType::Identifier,
+        };
+
+        match token_type {
+            TokenType::Identifier => self.add_token_literal(
+                TokenType::Identifier,
+                Some(Literal::Identifier(literal_val)),
+            ),
+            _ => self.add_token(token_type),
+        }
     }
 
     fn number(&mut self) {
         while Scanner::is_decimal_digit(self.peek()) {
             self.advance();
         }
-        
-
 
         if self.peek() == '.' && Scanner::is_decimal_digit(self.peek_next()) {
             self.advance();
@@ -233,8 +259,8 @@ impl Scanner {
         self.add_token_literal(TokenType::Number, Some(Literal::Number(val)))
     }
 
-    fn string(&mut self){
-        while self.peek() != '"' &&  !self.is_at_end() {
+    fn string(&mut self) {
+        while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1
             }
@@ -252,9 +278,9 @@ impl Scanner {
         self.add_token_literal(
             TokenType::String,
             Some(Literal::Str(
-                    String::from_utf8(self.source[self.start + 1..self.current - 1].to_vec()).unwrap(),
-                )),
-            )
+                String::from_utf8(self.source[self.start + 1..self.current - 1].to_vec()).unwrap(),
+            )),
+        )
     }
 
     fn peek_next(&self) -> char {
@@ -264,7 +290,7 @@ impl Scanner {
             char::from(self.source[self.current + 1])
         }
     }
-        
+
     fn peek(&self) -> char {
         if self.is_at_end() {
             '\0'
@@ -272,24 +298,24 @@ impl Scanner {
             char::from(self.source[self.current])
         }
     }
-    
-    fn add_token(&mut self, token_type: TokenType){
+
+    fn add_token(&mut self, token_type: TokenType) {
         self.add_token_literal(token_type, None)
     }
 
-    fn add_token_literal(&mut self, token_type: TokenType, literal: Option<Literal>) { 
+    fn add_token_literal(&mut self, token_type: TokenType, literal: Option<Literal>) {
         let text = self.source[self.start..self.current].to_vec();
-            
 
-        self.tokens.push(Token{ ty: token_type,
-                                lexeme : text,
-                                literal,
-                                line: self.line,
-                                col: self.col,
+        self.tokens.push(Token {
+            ty: token_type,
+            lexeme: text,
+            literal,
+            line: self.line,
+            col: self.col,
         })
     }
-    
-//only consume character if it matches branch for next char    
+
+    //only consume character if it matches branch for next char
     fn matches(&mut self, c: char) -> bool {
         if self.is_at_end() {
             return true;
@@ -297,7 +323,7 @@ impl Scanner {
 
         if char::from(self.source[self.current]) != c {
             return false;
-        }   
+        }
 
         self.current += 1;
         self.col += 1;
@@ -312,7 +338,3 @@ impl Scanner {
         self.current >= self.source.len()
     }
 }
-
-
-
-

@@ -2,7 +2,7 @@
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub enum Expr{
+pub enum Expr {
     Literal(Literal),
     Unary(UnaryOp, Box<Expr>),
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
@@ -11,16 +11,24 @@ pub enum Expr{
 
 //single operand
 #[allow(dead_code)]
-#[derive(Debug)]
-pub enum UnaryOp{
+#[derive(Debug, Copy, Clone)]
+pub enum UnaryOpType {
     Minus,
     Bang,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+pub struct UnaryOp {
+    pub ty: UnaryOpType,
+    pub line: usize,
+    pub col: i64,
+}
+
 //two operands
 #[allow(dead_code)]
-#[derive(Debug)]
-pub enum BinaryOp{
+#[derive(Debug, Copy, Clone)]
+pub enum BinaryOp {
     EqualEqual,
     NotEqual,
     Less,
@@ -35,7 +43,7 @@ pub enum BinaryOp{
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub enum Literal{
+pub enum Literal {
     Number(f64),
     String(String),
     True,
