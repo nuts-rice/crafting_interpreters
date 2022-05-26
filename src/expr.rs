@@ -1,6 +1,4 @@
 //Syntax, grammar tree
-
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Expr {
     Literal(Literal),
@@ -10,14 +8,14 @@ pub enum Expr {
 }
 
 //single operand
-#[allow(dead_code)]
+
 #[derive(Debug, Copy, Clone)]
 pub enum UnaryOpType {
     Minus,
     Bang,
 }
 
-#[allow(dead_code)]
+
 #[derive(Debug, Copy, Clone)]
 pub struct UnaryOp {
     pub ty: UnaryOpType,
@@ -26,9 +24,8 @@ pub struct UnaryOp {
 }
 
 //two operands
-#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
-pub enum BinaryOp {
+pub enum BinaryOpType {
     EqualEqual,
     NotEqual,
     Less,
@@ -41,7 +38,13 @@ pub enum BinaryOp {
     Slash,
 }
 
-#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+pub struct BinaryOp{
+    pub ty: BinaryOpType,
+    pub line: usize,
+    pub col: i64,
+}
+
 #[derive(Debug)]
 pub enum Literal {
     Number(f64),

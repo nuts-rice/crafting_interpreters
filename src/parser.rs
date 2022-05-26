@@ -46,10 +46,10 @@ impl Parser {
             scanner::TokenType::Less,
             scanner::TokenType::LessEqual,
         ]) {
-            let operator_token: scanner::TokenType = self.previous().ty;
+            let operator_token = self.previous().clone();
             let right = Box::new(self.addition()?);
 
-            let binop_maybe = Parser::op_token_to_binop(operator_token);
+            let binop_maybe = Parser::op_token_to_binop(&operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
@@ -66,10 +66,10 @@ impl Parser {
         let mut expr = self.multiplication()?;
 
         while self.match_one_of(vec![scanner::TokenType::Minus, scanner::TokenType::Plus]) {
-            let operator_token: scanner::TokenType = self.previous().ty;
+            let operator_token =  self.previous().clone();
             let right = Box::new(self.multiplication()?);
 
-            let binop_maybe = Parser::op_token_to_binop(operator_token);
+            let binop_maybe = Parser::op_token_to_binop(&operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
@@ -86,10 +86,11 @@ impl Parser {
     fn multiplication(&mut self) -> Result<expr::Expr, String> {
         let mut expr = self.unary()?;
         while self.match_one_of(vec![scanner::TokenType::Slash, scanner::TokenType::Star]) {
-            let operator_token: scanner::TokenType = self.previous().ty;
+            
+            let operator_token = self.previous().clone();
             let right = Box::new(self.unary()?);
 
-            let binop_maybe = Parser::op_token_to_binop(operator_token);
+            let binop_maybe = Parser::op_token_to_binop(&operator_token);
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
@@ -201,10 +202,10 @@ impl Parser {
             scanner::TokenType::BangEqual,
             scanner::TokenType::EqualEqual,
         ]) {
-            let operator_token: scanner::TokenType = self.previous().ty;
+            let operator_token  = self.previous().clone();
             let right = Box::new(self.comparison()?);
 
-            let binop_maybe = Parser::op_token_to_binop(operator_token);
+            let binop_maybe = Parser::op_token_to_binop(&operator_token);
 
             match binop_maybe {
                 Ok(binop) => {
@@ -212,24 +213,68 @@ impl Parser {
                     return Ok(expr::Expr::Binary(left, binop, right));
                 }
                 Err(err) => return Err(err),
+                
             }
+            
         }
         Ok(expr)
     }
 
-    fn op_token_to_binop(tok: scanner::TokenType) -> Result<expr::BinaryOp, String> {
-        match tok {
-            scanner::TokenType::EqualEqual => Ok(expr::BinaryOp::EqualEqual),
-            scanner::TokenType::BangEqual => Ok(expr::BinaryOp::NotEqual),
-            scanner::TokenType::Less => Ok(expr::BinaryOp::Less),
-            scanner::TokenType::LessEqual => Ok(expr::BinaryOp::LessEqual),
-            scanner::TokenType::Greater => Ok(expr::BinaryOp::Greater),
-            scanner::TokenType::GreaterEqual => Ok(expr::BinaryOp::GreaterEqual),
-            scanner::TokenType::Plus => Ok(expr::BinaryOp::Plus),
-            scanner::TokenType::Minus => Ok(expr::BinaryOp::Minus),
-            scanner::TokenType::Star => Ok(expr::BinaryOp::Star),
-            scanner::TokenType::Slash => Ok(expr::BinaryOp::Slash),
-            _ => Err(format!("invalid token in binary operation {:?}", tok)),
+    fn op_token_to_binop(tok: &scanner::Token) -> Result<expr::BinaryOp, String> {
+        match tok.ty {
+            scanner::TokenType::EqualEqual => Ok(expr::BinaryOp{
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
+            }),
+            scanner::TokenType::BangEqual => Ok(expr::BinaryOp{
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
+            }),
+            scanner::TokenType::Less => Ok(expr::BinaryOp{
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
+            }),
+            scanner::TokenType::LessEqual => Ok(expr::BinaryOp{
+            
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),
+            scanner::TokenType::Greater => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),
+            scanner::TokenType::GreaterEqual => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),
+            scanner::TokenType::Plus => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),           
+            scanner::TokenType::Minus => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),
+            scanner::TokenType::Star => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+            }),
+            scanner::TokenType::Slash => Ok(expr::BinaryOp{
+                     ty: expr::BinaryOpType::EqualEqual,
+                     line: tok.line,
+                     col: tok.col,
+                 }),
+                 
+            _ => Err(format!("invalid token in binary operation {:?} at line={}, col={}", tok.ty, tok.line,tok.col)),
         }
     }
 
