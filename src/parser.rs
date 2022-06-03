@@ -8,29 +8,75 @@ struct Parser {
     current: usize,
 }
 
-pub fn parse(tokens: Vec<scanner::Token>) -> Result<expr::Expr, String> {
+pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
     let mut p = Parser {
         tokens,
         ..Default::default()
     };
 
-    let expr_or_err = p.parse();
+    let stmts_or_err = p.parse();
 
-    match expr_or_err {
-        Ok(expr) => {
+    match stmts_or_err {
+        Ok(stmts_or_err) => {
             if !p.is_at_end() {
-                Err(format!("Unexpected {:?}", p.tokens[p.current]))
+                let tok = &p.tokens[p.current];
+                Err(format!("Unexpected token of type {:?} at line={}, col={} ",
+                        tok.ty, tok.line, tok.col))
             } else {
-                Ok(expr)
+                Ok(stmts_or_err)
             }
         }
         Err(err) => Err(err),
     }
 }
 
+//Grammar
+//program   → statement* EOF ;
+//statement → exprStmt
+//              | printStmt ;
+//exprStmt  → expression ";" ;
+//printStmt → "print" expression ";" ;
+//expression     → equality ;
+//equality       → comparison ( ( "!=" | "==" ) comparison )* ;
+//comparison     → addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
+//addition       → multiplication ( ( "-" | "+" ) multiplication )* ;
+//multiplication → unary ( ( "/" | "*" ) unary )* ;
+//unary          → ( "!" | "-" ) unary
+//                    |primary
+//primary        → NUMBER | STRING | "false" | "true" | "nil"
+//                            | "(" expression ")" ;
+
 impl Parser {
-    pub fn parse(&mut self) -> Result<expr::Expr, String> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<expr::Stmt>, String> {
+        let mut statements = Vec::new();
+
+        while !self.is_at_end() {
+            let stmt = self.statement()?;
+            statements.push(stmt);
+        }
+
+        Ok(statements)
+
+    }
+
+    fn statement(&mut self) -> Result<expr::Stmt, String>{
+        if self.matches(scanner::TokenType::Print) {
+            return self.print_statement()
+        }
+
+        self.expression_statement()
+    }
+
+    fn print_statement(&mut self) -> Result<expr::Stmt, String>{
+        let expr = self.expression()?;
+        self.consume(scanner::TokenType::Semicolon, "Expected ; after value ")?;
+        Ok(expr::Stmt::Print(expr))
+    }
+
+    fn expression_statement(&mut self) -> Result<expr::Stmt, String> {
+        let expr = self.expression()?;
+        self.consume(scanner::TokenType::Semicolon, "Expected ; after value")?;
+        Ok(expr::Stmt::Expr(expr))
     }
 
     fn expression(&mut self) -> Result<expr::Expr, String> {
@@ -63,6 +109,7 @@ impl Parser {
     }
 
     fn addition(&mut self) -> Result<expr::Expr, String> {
+
         let mut expr = self.multiplication()?;
 
         while self.match_one_of(vec![scanner::TokenType::Minus, scanner::TokenType::Plus]) {
@@ -160,7 +207,11 @@ impl Parser {
             }
             return Ok(expr::Expr::Grouping(expr));
         }
-        Err(format!("Expected ezxpression at {:?}", self.peek()))
+        Err(format!("Expected expression, but found token {:?} at line={}, col={}",
+                self.peek().ty,
+                self.peek().line,
+                self.peek().col
+                ))
     }
 
     fn consume(
@@ -191,7 +242,7 @@ impl Parser {
                 line: tok.line,
                 col: tok.col,
             }),
-            _ => Err(format!("invalid token in unary op {:?}", tok)),
+            _ => Err(format!("invalid token in unary op {:?} at line={},col={}", tok.ty, tok.line, tok.col)),
         }
     }
 

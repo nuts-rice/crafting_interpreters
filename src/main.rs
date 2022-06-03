@@ -21,16 +21,17 @@ fn main() {
             }
             println!();
 
-            let expr_maybe = parser::parse(tokens);
+            let stmts_maybe = parser::parse(tokens);
 
-            match expr_maybe {
-                Ok(expr) => {
-                    println!("ast:\n{:#?}", expr);
-                    let interpret_res = interpreter::interpret(&expr);
+            match stmts_maybe {
+                Ok(stmts) => {
+                    println!("ast:\n{:#?}", stmts);
+                    let interpret_res = interpreter::interpret(&stmts);
                     println!();
                     match interpret_res {
-                        Ok(val) => println!("Result:\n{}", val),
+                        Ok(_) => {}
                         Err(err) => println!("Intreprter error:\n{}", err),
+                        
                     }
                 }
                 Err(err) => println!("Parse error: {}", err),
