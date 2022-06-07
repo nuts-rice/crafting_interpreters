@@ -31,10 +31,12 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 }
 
 //Grammar
-//program   → statement* EOF ;
-//statement → exprStmt
-//              | printStmt ;
-//exprStmt  → expression ";" ;
+//program   → declaration* EOF ;
+//declartion → VarDecl
+//              | stamement;
+//statement  → exprStmt
+//             | printstmt
+//varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;             
 //printStmt → "print" expression ";" ;
 //expression     → equality ;
 //equality       → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -45,19 +47,50 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //                    |primary
 //primary        → NUMBER | STRING | "false" | "true" | "nil"
 //                            | "(" expression ")" ;
+//                            | IDENTIFIER ;
 
 impl Parser {
     pub fn parse(&mut self) -> Result<Vec<expr::Stmt>, String> {
         let mut statements = Vec::new();
 
         while !self.is_at_end() {
-            let stmt = self.statement()?;
+            let stmt = self.declaration()?;
             statements.push(stmt);
         }
 
         Ok(statements)
 
     }
+
+    fn declaration(&mut self) -> Result<expr::Stmt, String> {
+        if self.matches(scanner::TokenType::Var){
+            return self.var_decl();
+        }
+        self.statement()
+    }
+
+    fn var_decl(&mut self) -> Result<expr::Stmt, String> {
+        let name_token = self
+            .consume(scanner::TokenType::Identifier, "Expected variable name")?
+            .clone();
+
+        let maybe_initializer = if self.matches(scanner::TokenType::Equal)  {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume(
+            scanner::TokenType::Semicolon,
+            "Expected ; after variable declaration",
+        )?;
+
+        Ok(expr::Stmt::VarDecl(
+                expr::Symbol(String::from_utf8(name_token.lexeme).unwrap()),
+                maybe_initializer,
+        ))
+    }
+
 
     fn statement(&mut self) -> Result<expr::Stmt, String>{
         if self.matches(scanner::TokenType::Print) {
@@ -196,14 +229,27 @@ impl Parser {
                 None => panic!("internal error in parser: when parsing string, found no literal"),
             }
         }
+        if self.matches(scanner::TokenType::Identifier){
+            match &self.previous().literal {
+                Some(scanner::Literal::Identifier(s)) => {
+                    return Ok(expr::Expr::Variable(expr::Symbol(s.clone())))
+                }
+                Some(l) => panic!("internal error in parser: when parsing identifier, found literal {:?}",
+                    l
+                ),
+                None => {
+                    panic!("internal error in parser: when parsing identifier, found no literal")
+                }
+            }
+        }
         if self.matches(scanner::TokenType::LeftParen) {
             let expr = Box::new(self.expression()?);
-            match self.consume(
+            if let Err(err) = self.consume(
                 scanner::TokenType::RightParen,
                 "Expected ')' after expression.",
             ) {
-                Err(err) => return Err(err),
-                _ => {}
+                return Err(err);
+                
             }
             return Ok(expr::Expr::Grouping(expr));
         }
@@ -247,7 +293,7 @@ impl Parser {
     }
 
     fn equality(&mut self) -> Result<expr::Expr, String> {
-        let expr = self.comparison()?;
+        let mut expr = self.comparison()?;
 
         while self.match_one_of(vec![
             scanner::TokenType::BangEqual,
@@ -261,15 +307,15 @@ impl Parser {
             match binop_maybe {
                 Ok(binop) => {
                     let left = Box::new(expr);
-                    return Ok(expr::Expr::Binary(left, binop, right));
+                    expr = expr::Expr::Binary(left, binop, right);
                 }
                 Err(err) => return Err(err),
                 
             }
-            
-        }
+        }               
         Ok(expr)
     }
+    
 
     fn op_token_to_binop(tok: &scanner::Token) -> Result<expr::BinaryOp, String> {
         match tok.ty {

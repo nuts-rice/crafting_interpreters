@@ -48,10 +48,11 @@ impl Enviroment{
 
     pub fn get(&self, sym: &expr::Symbol) -> Option<&Option<Value>>{
         self.venv.get(&sym)
-    }
-
+    }   
 }
 
+
+#[derive(Default)]
 struct Interpreter{
     env: Enviroment,
 }
@@ -142,11 +143,12 @@ impl Interpreter {
             (Value::String(s1), expr::BinaryOpType::Plus, Value::String(s2)) => {
                 Ok(Value::String(format!("{}{}", s1, s2 )))
             }
-            (_, expr::BinaryOpType::EqualEqual, _) =? {
+            (_, expr::BinaryOpType::EqualEqual, _) => {
                 Ok(Value::Bool(Interpreter::equals(&lhs, &rhs)))
             }
+            
             (_, expr::BinaryOpType::NotEqual, _) => Ok(Value::Bool(!Interpreter::equals(&lhs, &rhs))),
-            (_, _, _) =? Err(format!(
+            (_, _, _) => Err(format!(
                     "invalid operands in binary opertor {:?} of type {:?} and {:?} at line={}, col={}",
                     op.ty,
                     type_of(&lhs),
