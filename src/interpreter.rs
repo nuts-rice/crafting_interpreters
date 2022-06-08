@@ -12,7 +12,7 @@ pub enum Value {
 }
 
 #[derive(Debug)]
-pub enum Type{
+pub enum Type {
     Number,
     String,
     Bool,
@@ -28,7 +28,7 @@ pub fn type_of(val: &Value) -> Type {
     }
 }
 
-pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String>{
+pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String> {
     let mut interpreter = Interpreter {
         ..Default::default()
     };
@@ -36,37 +36,34 @@ pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String>{
 }
 
 #[derive(Default)]
-struct Enviroment{
+struct Enviroment {
     venv: HashMap<expr::Symbol, Option<Value>>,
 }
 
-impl Enviroment{
-    
-    pub fn define(&mut self, sym: expr::Symbol, maybe_val: Option<Value>){
+impl Enviroment {
+    pub fn define(&mut self, sym: expr::Symbol, maybe_val: Option<Value>) {
         self.venv.insert(sym, maybe_val);
     }
 
-    pub fn get(&self, sym: &expr::Symbol) -> Option<&Option<Value>>{
+    pub fn get(&self, sym: &expr::Symbol) -> Option<&Option<Value>> {
         self.venv.get(&sym)
-    }   
+    }
 }
 
-
 #[derive(Default)]
-struct Interpreter{
+struct Interpreter {
     env: Enviroment,
 }
 
 impl Interpreter {
-
-    pub fn interpret(&mut self, stmts: &[expr::Stmt]) -> Result<(), String>{
-        for stmt in stmts.iter()  {
+    pub fn interpret(&mut self, stmts: &[expr::Stmt]) -> Result<(), String> {
+        for stmt in stmts.iter() {
             self.execute(stmt)?;
         }
         Ok(())
     }
 
-    pub fn execute(&mut self, stmt: &expr::Stmt) -> Result<(), String>{
+    pub fn execute(&mut self, stmt: &expr::Stmt) -> Result<(), String> {
         match stmt {
             expr::Stmt::Expr(e) => match self.interpret_expr(e) {
                 Ok(_) => Ok(()),
@@ -80,18 +77,17 @@ impl Interpreter {
                 Err(err) => Err(err),
             },
             expr::Stmt::VarDecl(sym, maybe_expr) => {
-                let maybe_val = match maybe_expr{
+                let maybe_val = match maybe_expr {
                     Some(expr) => Some(self.interpret_expr(expr)?),
                     None => None,
                 };
                 self.env.define(sym.clone(), maybe_val);
                 Ok(())
-                 
             }
         }
     }
 
-    pub fn interpret_expr(&mut self, expr: &expr::Expr) -> Result<Value, String>{
+    pub fn interpret_expr(&mut self, expr: &expr::Expr) -> Result<Value, String> {
         match expr {
             expr::Expr::Literal(lit) => Ok(Interpreter::interpret_literal(lit)),
             expr::Expr::Unary(op, e) => self.interpret_unary(*op, e),
@@ -107,60 +103,70 @@ impl Interpreter {
         }
     }
 
-    fn interpret_binary(&mut self, lhs_expr: &expr::Expr, op: expr::BinaryOp, rhs_expr: &expr::Expr) -> Result<Value, String> {
+    fn interpret_binary(
+        &mut self,
+        lhs_expr: &expr::Expr,
+        op: expr::BinaryOp,
+        rhs_expr: &expr::Expr,
+    ) -> Result<Value, String> {
         let lhs = self.interpret_expr(lhs_expr)?;
         let rhs = self.interpret_expr(rhs_expr)?;
 
-        match (&lhs, op.ty, &rhs){
+        match (&lhs, op.ty, &rhs) {
             (Value::Number(n1), expr::BinaryOpType::Less, Value::Number(n2)) => {
                 Ok(Value::Bool(n1 < n2))
             }
             (Value::Number(n1), expr::BinaryOpType::LessEqual, Value::Number(n2)) => {
-                     Ok(Value::Bool(n1 <= n2))
+                Ok(Value::Bool(n1 <= n2))
             }
             (Value::Number(n1), expr::BinaryOpType::Greater, Value::Number(n2)) => {
-                     Ok(Value::Bool(n1 > n2))
+                Ok(Value::Bool(n1 > n2))
             }
             (Value::Number(n1), expr::BinaryOpType::GreaterEqual, Value::Number(n2)) => {
-                     Ok(Value::Bool(n1 >= n2))
+                Ok(Value::Bool(n1 >= n2))
             }
             (Value::Number(n1), expr::BinaryOpType::Plus, Value::Number(n2)) => {
-                     Ok(Value::Number(n1 + n2))
+                Ok(Value::Number(n1 + n2))
             }
             (Value::Number(n1), expr::BinaryOpType::Minus, Value::Number(n2)) => {
-                     Ok(Value::Number(n1 - n2))
+                Ok(Value::Number(n1 - n2))
             }
             (Value::Number(n1), expr::BinaryOpType::Star, Value::Number(n2)) => {
-                     Ok(Value::Number(n1 * n2))
+                Ok(Value::Number(n1 * n2))
             }
             (Value::Number(n1), expr::BinaryOpType::Slash, Value::Number(n2)) => {
                 if *n2 != 0.0 {
-                               Ok(Value::Number(n1 / n2))
+                    Ok(Value::Number(n1 / n2))
                 } else {
-                    Err(format!("division by zero at line={}, col={}", op.line, op.col))
-                 }
+                    Err(format!(
+                        "division by zero at line={}, col={}",
+                        op.line, op.col
+                    ))
+                }
             }
             (Value::String(s1), expr::BinaryOpType::Plus, Value::String(s2)) => {
-                Ok(Value::String(format!("{}{}", s1, s2 )))
+                Ok(Value::String(format!("{}{}", s1, s2)))
             }
             (_, expr::BinaryOpType::EqualEqual, _) => {
                 Ok(Value::Bool(Interpreter::equals(&lhs, &rhs)))
             }
-            
-            (_, expr::BinaryOpType::NotEqual, _) => Ok(Value::Bool(!Interpreter::equals(&lhs, &rhs))),
+
+            (_, expr::BinaryOpType::NotEqual, _) => {
+                Ok(Value::Bool(!Interpreter::equals(&lhs, &rhs)))
+            }
             (_, _, _) => Err(format!(
-                    "invalid operands in binary opertor {:?} of type {:?} and {:?} at line={}, col={}",
-                    op.ty,
-                    type_of(&lhs),
-                    type_of(&rhs),
-                    op.line,
-                    op.col
-                    )),
+                "invalid operands in binary opertor {:?} of type {:?} and {:?} at line={}, col={}",
+                op.ty,
+                type_of(&lhs),
+                type_of(&rhs),
+                op.line,
+                op.col
+            )),
         }
     }
-            
+
     fn equals(lhs: &Value, rhs: &Value) -> bool {
-        match (lhs, rhs) {     
+        match (lhs, rhs) {
             (Value::Number(n1), Value::Number(n2)) => (n1 - n2).abs() < f64::EPSILON,
             (Value::String(s1), Value::String(s2)) => s1 == s2,
             (Value::Bool(b1), Value::Bool(b2)) => b1 == b2,
@@ -169,9 +175,7 @@ impl Interpreter {
         }
     }
 
-
-
-//convert literal tree node of syntax tree into runtime value
+    //convert literal tree node of syntax tree into runtime value
     fn interpret_unary(&mut self, op: expr::UnaryOp, expr: &expr::Expr) -> Result<Value, String> {
         let val = self.interpret_expr(expr)?;
 

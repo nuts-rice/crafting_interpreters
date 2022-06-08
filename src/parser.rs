@@ -20,8 +20,10 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
         Ok(stmts_or_err) => {
             if !p.is_at_end() {
                 let tok = &p.tokens[p.current];
-                Err(format!("Unexpected token of type {:?} at line={}, col={} ",
-                        tok.ty, tok.line, tok.col))
+                Err(format!(
+                    "Unexpected token of type {:?} at line={}, col={} ",
+                    tok.ty, tok.line, tok.col
+                ))
             } else {
                 Ok(stmts_or_err)
             }
@@ -36,7 +38,7 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //              | stamement;
 //statement  → exprStmt
 //             | printstmt
-//varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;             
+//varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;
 //printStmt → "print" expression ";" ;
 //expression     → equality ;
 //equality       → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -59,11 +61,10 @@ impl Parser {
         }
 
         Ok(statements)
-
     }
 
     fn declaration(&mut self) -> Result<expr::Stmt, String> {
-        if self.matches(scanner::TokenType::Var){
+        if self.matches(scanner::TokenType::Var) {
             return self.var_decl();
         }
         self.statement()
@@ -74,7 +75,7 @@ impl Parser {
             .consume(scanner::TokenType::Identifier, "Expected variable name")?
             .clone();
 
-        let maybe_initializer = if self.matches(scanner::TokenType::Equal)  {
+        let maybe_initializer = if self.matches(scanner::TokenType::Equal) {
             Some(self.expression()?)
         } else {
             None
@@ -86,21 +87,20 @@ impl Parser {
         )?;
 
         Ok(expr::Stmt::VarDecl(
-                expr::Symbol(String::from_utf8(name_token.lexeme).unwrap()),
-                maybe_initializer,
+            expr::Symbol(String::from_utf8(name_token.lexeme).unwrap()),
+            maybe_initializer,
         ))
     }
 
-
-    fn statement(&mut self) -> Result<expr::Stmt, String>{
+    fn statement(&mut self) -> Result<expr::Stmt, String> {
         if self.matches(scanner::TokenType::Print) {
-            return self.print_statement()
+            return self.print_statement();
         }
 
         self.expression_statement()
     }
 
-    fn print_statement(&mut self) -> Result<expr::Stmt, String>{
+    fn print_statement(&mut self) -> Result<expr::Stmt, String> {
         let expr = self.expression()?;
         self.consume(scanner::TokenType::Semicolon, "Expected ; after value ")?;
         Ok(expr::Stmt::Print(expr))
@@ -142,11 +142,10 @@ impl Parser {
     }
 
     fn addition(&mut self) -> Result<expr::Expr, String> {
-
         let mut expr = self.multiplication()?;
 
         while self.match_one_of(vec![scanner::TokenType::Minus, scanner::TokenType::Plus]) {
-            let operator_token =  self.previous().clone();
+            let operator_token = self.previous().clone();
             let right = Box::new(self.multiplication()?);
 
             let binop_maybe = Parser::op_token_to_binop(&operator_token);
@@ -166,7 +165,6 @@ impl Parser {
     fn multiplication(&mut self) -> Result<expr::Expr, String> {
         let mut expr = self.unary()?;
         while self.match_one_of(vec![scanner::TokenType::Slash, scanner::TokenType::Star]) {
-            
             let operator_token = self.previous().clone();
             let right = Box::new(self.unary()?);
 
@@ -229,12 +227,13 @@ impl Parser {
                 None => panic!("internal error in parser: when parsing string, found no literal"),
             }
         }
-        if self.matches(scanner::TokenType::Identifier){
+        if self.matches(scanner::TokenType::Identifier) {
             match &self.previous().literal {
                 Some(scanner::Literal::Identifier(s)) => {
                     return Ok(expr::Expr::Variable(expr::Symbol(s.clone())))
                 }
-                Some(l) => panic!("internal error in parser: when parsing identifier, found literal {:?}",
+                Some(l) => panic!(
+                    "internal error in parser: when parsing identifier, found literal {:?}",
                     l
                 ),
                 None => {
@@ -249,15 +248,15 @@ impl Parser {
                 "Expected ')' after expression.",
             ) {
                 return Err(err);
-                
             }
             return Ok(expr::Expr::Grouping(expr));
         }
-        Err(format!("Expected expression, but found token {:?} at line={}, col={}",
-                self.peek().ty,
-                self.peek().line,
-                self.peek().col
-                ))
+        Err(format!(
+            "Expected expression, but found token {:?} at line={}, col={}",
+            self.peek().ty,
+            self.peek().line,
+            self.peek().col
+        ))
     }
 
     fn consume(
@@ -288,7 +287,10 @@ impl Parser {
                 line: tok.line,
                 col: tok.col,
             }),
-            _ => Err(format!("invalid token in unary op {:?} at line={},col={}", tok.ty, tok.line, tok.col)),
+            _ => Err(format!(
+                "invalid token in unary op {:?} at line={},col={}",
+                tok.ty, tok.line, tok.col
+            )),
         }
     }
 
@@ -299,7 +301,7 @@ impl Parser {
             scanner::TokenType::BangEqual,
             scanner::TokenType::EqualEqual,
         ]) {
-            let operator_token  = self.previous().clone();
+            let operator_token = self.previous().clone();
             let right = Box::new(self.comparison()?);
 
             let binop_maybe = Parser::op_token_to_binop(&operator_token);
@@ -310,68 +312,68 @@ impl Parser {
                     expr = expr::Expr::Binary(left, binop, right);
                 }
                 Err(err) => return Err(err),
-                
             }
-        }               
+        }
         Ok(expr)
     }
-    
 
     fn op_token_to_binop(tok: &scanner::Token) -> Result<expr::BinaryOp, String> {
         match tok.ty {
-            scanner::TokenType::EqualEqual => Ok(expr::BinaryOp{
+            scanner::TokenType::EqualEqual => Ok(expr::BinaryOp {
                 ty: expr::BinaryOpType::EqualEqual,
                 line: tok.line,
                 col: tok.col,
             }),
-            scanner::TokenType::BangEqual => Ok(expr::BinaryOp{
+            scanner::TokenType::BangEqual => Ok(expr::BinaryOp {
                 ty: expr::BinaryOpType::EqualEqual,
                 line: tok.line,
                 col: tok.col,
             }),
-            scanner::TokenType::Less => Ok(expr::BinaryOp{
+            scanner::TokenType::Less => Ok(expr::BinaryOp {
                 ty: expr::BinaryOpType::EqualEqual,
                 line: tok.line,
                 col: tok.col,
             }),
-            scanner::TokenType::LessEqual => Ok(expr::BinaryOp{
-            
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
+            scanner::TokenType::LessEqual => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
             }),
-            scanner::TokenType::Greater => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
+            scanner::TokenType::Greater => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
             }),
-            scanner::TokenType::GreaterEqual => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
+            scanner::TokenType::GreaterEqual => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
             }),
-            scanner::TokenType::Plus => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
-            }),           
-            scanner::TokenType::Minus => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
+            scanner::TokenType::Plus => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
             }),
-            scanner::TokenType::Star => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
+            scanner::TokenType::Minus => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
             }),
-            scanner::TokenType::Slash => Ok(expr::BinaryOp{
-                     ty: expr::BinaryOpType::EqualEqual,
-                     line: tok.line,
-                     col: tok.col,
-                 }),
-                 
-            _ => Err(format!("invalid token in binary operation {:?} at line={}, col={}", tok.ty, tok.line,tok.col)),
+            scanner::TokenType::Star => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
+            }),
+            scanner::TokenType::Slash => Ok(expr::BinaryOp {
+                ty: expr::BinaryOpType::EqualEqual,
+                line: tok.line,
+                col: tok.col,
+            }),
+
+            _ => Err(format!(
+                "invalid token in binary operation {:?} at line={}, col={}",
+                tok.ty, tok.line, tok.col
+            )),
         }
     }
 

@@ -5,19 +5,18 @@ pub enum Expr {
     Unary(UnaryOp, Box<Expr>),
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
     Grouping(Box<Expr>),
-    Variable(Symbol), 
+    Variable(Symbol),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct Symbol(pub String);
 
 #[derive(Debug)]
-pub enum Stmt{
+pub enum Stmt {
     Expr(Expr),
     Print(Expr),
     VarDecl(Symbol, Option<Expr>),
 }
-
 
 //single operand
 
@@ -26,7 +25,6 @@ pub enum UnaryOpType {
     Minus,
     Bang,
 }
-
 
 #[derive(Debug, Copy, Clone)]
 pub struct UnaryOp {
@@ -51,7 +49,7 @@ pub enum BinaryOpType {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct BinaryOp{
+pub struct BinaryOp {
     pub ty: BinaryOpType,
     pub line: usize,
     pub col: i64,

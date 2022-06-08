@@ -31,7 +31,6 @@ fn main() {
                     match interpret_res {
                         Ok(_) => {}
                         Err(err) => println!("Intreprter error:\n{}", err),
-                        
                     }
                 }
                 Err(err) => println!("Parse error: {}", err),
