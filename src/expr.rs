@@ -6,10 +6,15 @@ pub enum Expr {
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
     Grouping(Box<Expr>),
     Variable(Symbol),
+    Assign(Symbol, Box<Expr>),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
-pub struct Symbol(pub String);
+pub struct Symbol {
+    pub name: String,
+    pub line: usize,
+    pub col: i64,
+}
 
 #[derive(Debug)]
 pub enum Stmt {

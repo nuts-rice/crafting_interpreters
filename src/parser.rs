@@ -40,7 +40,10 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //             | printstmt
 //varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;
 //printStmt → "print" expression ";" ;
-//expression     → equality ;
+//expression     → assignment ;
+//assignment -> IDENTIFIER "=" assignment
+//                        |equality;
+//
 //equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 //comparison     → addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 //addition       → multiplication ( ( "-" | "+" ) multiplication )* ;
@@ -87,7 +90,11 @@ impl Parser {
         )?;
 
         Ok(expr::Stmt::VarDecl(
-            expr::Symbol(String::from_utf8(name_token.lexeme).unwrap()),
+            expr::Symbol {
+                name: String::from_utf8(name_token.lexeme).unwrap(),
+                line: name_token.line,
+                col: name_token.col,
+            },
             maybe_initializer,
         ))
     }
@@ -113,7 +120,26 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<expr::Expr, String> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<expr::Expr, String> {
+        let expr = self.equality()?;
+
+        if self.matches(scanner::TokenType::Equal) {
+            let equals = self.previous().clone();
+            let value = self.assignment()?;
+
+            if let expr::Expr::Variable(sym) = &value {
+                return Ok(expr::Expr::Assign(sym.clone(), Box::new(value)));
+            } else {
+                return Err(format!(
+                    "invalid assignment target at line={}, col={}",
+                    equals.line, equals.col
+                ));
+            }
+        }
+        Ok(expr)
     }
 
     fn comparison(&mut self) -> Result<expr::Expr, String> {
@@ -230,7 +256,11 @@ impl Parser {
         if self.matches(scanner::TokenType::Identifier) {
             match &self.previous().literal {
                 Some(scanner::Literal::Identifier(s)) => {
-                    return Ok(expr::Expr::Variable(expr::Symbol(s.clone())))
+                    return Ok(expr::Expr::Variable(expr::Symbol {
+                        name: s.clone(),
+                        line: self.previous().line,
+                        col: self.previous().col,
+                    }))
                 }
                 Some(l) => panic!(
                     "internal error in parser: when parsing identifier, found literal {:?}",

@@ -37,16 +37,28 @@ pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String> {
 
 #[derive(Default)]
 struct Enviroment {
-    venv: HashMap<expr::Symbol, Option<Value>>,
+    venv: HashMap<String, Option<Value>>,
 }
 
 impl Enviroment {
     pub fn define(&mut self, sym: expr::Symbol, maybe_val: Option<Value>) {
-        self.venv.insert(sym, maybe_val);
+        self.venv.insert(sym.name, maybe_val);
     }
 
     pub fn get(&self, sym: &expr::Symbol) -> Option<&Option<Value>> {
-        self.venv.get(&sym)
+        self.venv.get(&sym.name)
+    }
+
+    pub fn assign(&mut self, sym: expr::Symbol, val: &Value) -> Result<(), String> {
+        if self.venv.contains_key(&sym.name) {
+            self.define(sym, Some(val.clone()));
+            return Ok(());
+        }
+
+        Err(format!(
+            "attempting to assign to undeclared variable at line={},col={}",
+            sym.line, sym.col
+        ))
     }
 }
 
@@ -93,13 +105,28 @@ impl Interpreter {
             expr::Expr::Unary(op, e) => self.interpret_unary(*op, e),
             expr::Expr::Binary(lhs, op, rhs) => self.interpret_binary(lhs, *op, rhs),
             expr::Expr::Grouping(e) => self.interpret_expr(e),
-            expr::Expr::Variable(sym) => match self.env.get(sym) {
-                Some(maybe_val) => match maybe_val {
-                    Some(val) => Ok(val.clone()),
-                    None => Err(format!("Undefined variable {:?}", sym)),
-                },
-                None => Err(format!("undefined variable {:?}", sym)),
-            },
+            expr::Expr::Variable(sym) => {
+                let err_string = format!(
+                    "Use of undefined variable {} at line={}, col ={}",
+                    sym.name, sym.line, sym.col
+                );
+                match self.env.get(sym) {
+                    Some(maybe_val) => match maybe_val {
+                        Some(val) => Ok(val.clone()),
+                        None => Err(err_string),
+                    },
+                    None => Err(err_string),
+                }
+            }
+
+            expr::Expr::Assign(sym, val_expr) => {
+                let val = self.interpret_expr(val_expr)?;
+
+                if let Err(err) = self.env.assign(sym.clone(), &val) {
+                    return Err(err);
+                }
+                Ok(val)
+            }
         }
     }
 
