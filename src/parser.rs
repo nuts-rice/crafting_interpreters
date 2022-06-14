@@ -39,15 +39,18 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //statement  → exprStmt
 //             | printstmt
 //             | ifStmt
+//             | whileStmt
 //             | block ;
+//whileStmt  -> "while" "(" expression ")" statement;
 //ifStmt -> "if" "(" expression ")" statement
 //block -> "{" declaration* "}";
 //varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;
 //printStmt → "print" expression ";" ;
 //expression     → assignment ;
 //assignment -> IDENTIFIER "=" assignment
-//                        |equality;
-//
+//                        |logic_or;
+//logic_or -> logic_and ( "or" logic_and )* ;
+//logic_and -> equality ( "and" equality )* ;
 //equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 //comparison     → addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 //addition       → multiplication ( ( "-" | "+" ) multiplication )* ;
@@ -114,8 +117,22 @@ impl Parser {
         if self.matches(scanner::TokenType::If) {
             return self.if_statement();
         }
+        if self.matches(scanner::TokenType::While) {
+            return self.while_statement();
+        }
 
         self.expression_statement()
+    }
+
+    fn while_statement(&mut self) -> Result<expr::Stmt, String> {
+        self.consume(scanner::TokenType::LeftParen, "Expected ( after while")?;
+        let cond = self.expression()?;
+        self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ) after while condition",
+        )?;
+        let body = Box::new(self.statement()?);
+        Ok(expr::Stmt::While(cond, body))
     }
 
     fn print_statement(&mut self) -> Result<expr::Stmt, String> {
@@ -163,7 +180,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<expr::Expr, String> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if self.matches(scanner::TokenType::Equal) {
             let equals = self.previous().clone();
@@ -177,6 +194,26 @@ impl Parser {
                     equals.line, equals.col
                 ));
             }
+        }
+        Ok(expr)
+    }
+
+    fn or(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.and()?;
+
+        while self.matches(scanner::TokenType::Or) {
+            let right = self.and()?;
+            expr = expr::Expr::Logical(Box::new(expr), expr::LogicalOp::Or, Box::new(right));
+        }
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.equality()?;
+
+        while self.matches(scanner::TokenType::And) {
+            let right = self.equality()?;
+            expr = expr::Expr::Logical(Box::new(expr), expr::LogicalOp::And, Box::new(right));
         }
         Ok(expr)
     }

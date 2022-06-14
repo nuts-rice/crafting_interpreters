@@ -7,6 +7,13 @@ pub enum Expr {
     Grouping(Box<Expr>),
     Variable(Symbol),
     Assign(Symbol, Box<Expr>),
+    Logical(Box<Expr>, LogicalOp, Box<Expr>),
+}
+
+#[derive(Debug)]
+pub enum LogicalOp {
+    Or,
+    And,
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
@@ -23,6 +30,7 @@ pub enum Stmt {
     VarDecl(Symbol, Option<Expr>),
     Block(Vec<Box<Stmt>>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
+    While(Expr, Box<Stmt>),
 }
 
 //single operand
