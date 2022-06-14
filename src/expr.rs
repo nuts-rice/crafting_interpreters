@@ -21,6 +21,8 @@ pub enum Stmt {
     Expr(Expr),
     Print(Expr),
     VarDecl(Symbol, Option<Expr>),
+    Block(Vec<Box<Stmt>>),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
 }
 
 //single operand

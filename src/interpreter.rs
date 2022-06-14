@@ -35,12 +35,13 @@ pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String> {
     interpreter.interpret(stmts)
 }
 
+#[derive(Debug, Clone)]
 struct SourceLocation {
     line: usize,
     col: i64,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Enviroment {
     enclosing: Option<Box<Enviroment>>,
 
@@ -61,7 +62,9 @@ impl Enviroment {
         }
     }
     pub fn define(&mut self, sym: expr::Symbol, maybe_val: Option<Value>) {
-        self.venv.insert(sym.name, (
+        self.venv.insert(
+            sym.name,
+            (
                 maybe_val,
                 SourceLocation {
                     line: sym.line,
@@ -71,13 +74,13 @@ impl Enviroment {
         );
     }
 
-    pub fn lookup(&self, sym: &expr::Symbol) -> LookupResult{
+    pub fn lookup(&self, sym: &expr::Symbol) -> LookupResult {
         match self.venv.get(&sym.name) {
             Some((maybe_val, defn_source_location)) => match maybe_val {
                 Some(val) => LookupResult::Ok(&val),
                 None => LookupResult::UndefButDeclared(SourceLocation {
                     line: defn_source_location.line,
-                    col: defn_source_location.col
+                    col: defn_source_location.col,
                 }),
             },
             None => LookupResult::UndefAndNotDeclared,
@@ -88,21 +91,20 @@ impl Enviroment {
         match self.lookup(&sym) {
             LookupResult::Ok(val) => Ok(&val),
             LookupResult::UndefButDeclared(source_location) => Err(format!(
-                    "Use of undefined variable {} at line={}, col={}.\
+                "Use of undefined variable {} at line={}, col={}.\
                     {} was previously declared at line={}, col={}, \
                     but was never defined",
-                    &sym.name, sym.line, sym.col, &sym.name, source_location.line, source_location.col
+                &sym.name, sym.line, sym.col, &sym.name, source_location.line, source_location.col
             )),
             LookupResult::UndefAndNotDeclared => match &self.enclosing {
                 Some(enclosing) => enclosing.get(sym),
                 None => Err(format!(
-                        "Use of undefined variable {} at line={}, col={}. {} was never declared",
-                        &sym.name, sym.line, sym.col, &sym.name
+                    "Use of undefined variable {} at line={}, col={}. {} was never declared",
+                    &sym.name, sym.line, sym.col, &sym.name
                 )),
             },
         }
     }
-            
 
     pub fn assign(&mut self, sym: expr::Symbol, val: &Value) -> Result<(), String> {
         if self.venv.contains_key(&sym.name) {
@@ -132,10 +134,19 @@ impl Interpreter {
 
     pub fn execute(&mut self, stmt: &expr::Stmt) -> Result<(), String> {
         match stmt {
-            expr::Stmt::Expr(e) => match self.interpret_expr(e) {                              
+            expr::Stmt::Expr(e) => match self.interpret_expr(e) {
                 Ok(_) => Ok(()),
                 Err(err) => Err(err),
             },
+            expr::Stmt::If(cond, if_true, maybe_if_false) => {
+                if Interpreter::is_truthy(&self.interpret_expr(cond)?) {
+                    return Ok(self.execute(if_true)?);
+                }
+                if let Some(if_false) = maybe_if_false {
+                    return Ok(self.execute(if_false)?);
+                }
+                Ok(())
+            }
             expr::Stmt::Print(e) => match self.interpret_expr(e) {
                 Ok(val) => {
                     println!("{}", val);
@@ -151,6 +162,21 @@ impl Interpreter {
                 self.env.define(sym.clone(), maybe_val);
                 Ok(())
             }
+            expr::Stmt::Block(stmts) => {
+                self.env = Enviroment::with_enclosing(self.env.clone());
+
+                for stmt in stmts.iter() {
+                    self.execute(stmt)?;
+                }
+
+                if let Some(enclosing) = self.env.enclosing.clone() {
+                    self.env = *enclosing
+                } else {
+                    assert!(false, "nope")
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -162,7 +188,7 @@ impl Interpreter {
             expr::Expr::Grouping(e) => self.interpret_expr(e),
             expr::Expr::Variable(sym) => match self.env.get(sym) {
                 Ok(val) => Ok(val.clone()),
-                Err(err) => Err(err)
+                Err(err) => Err(err),
             },
             expr::Expr::Assign(sym, val_expr) => {
                 let val = self.interpret_expr(val_expr)?;

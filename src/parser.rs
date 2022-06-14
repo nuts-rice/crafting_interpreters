@@ -38,6 +38,10 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //              | stamement;
 //statement  → exprStmt
 //             | printstmt
+//             | ifStmt
+//             | block ;
+//ifStmt -> "if" "(" expression ")" statement
+//block -> "{" declaration* "}";
 //varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;
 //printStmt → "print" expression ";" ;
 //expression     → assignment ;
@@ -103,6 +107,13 @@ impl Parser {
         if self.matches(scanner::TokenType::Print) {
             return self.print_statement();
         }
+        if self.matches(scanner::TokenType::LeftBrace) {
+            return Ok(expr::Stmt::Block(self.block()?));
+        }
+
+        if self.matches(scanner::TokenType::If) {
+            return self.if_statement();
+        }
 
         self.expression_statement()
     }
@@ -111,6 +122,34 @@ impl Parser {
         let expr = self.expression()?;
         self.consume(scanner::TokenType::Semicolon, "Expected ; after value ")?;
         Ok(expr::Stmt::Print(expr))
+    }
+
+    fn block(&mut self) -> Result<Vec<Box<expr::Stmt>>, String> {
+        let mut stmts: Vec<Box<expr::Stmt>> = Vec::new();
+
+        while !self.check(scanner::TokenType::RightBrace) && !self.is_at_end() {
+            stmts.push(Box::new(self.declaration()?))
+        }
+        self.consume(scanner::TokenType::RightBrace, "Expected } after block")?;
+
+        Ok(stmts)
+    }
+
+    fn if_statement(&mut self) -> Result<expr::Stmt, String> {
+        self.consume(scanner::TokenType::LeftParen, "Expected ( after if")?;
+        let cond = self.expression()?;
+        self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ) after if condition",
+        )?;
+        let then_branch = Box::new(self.statement()?);
+        let maybe_else_branch = if self.matches(scanner::TokenType::Else) {
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+
+        Ok(expr::Stmt::If(cond, then_branch, maybe_else_branch))
     }
 
     fn expression_statement(&mut self) -> Result<expr::Stmt, String> {
