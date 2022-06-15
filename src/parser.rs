@@ -60,7 +60,9 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //addition       → multiplication ( ( "-" | "+" ) multiplication )* ;
 //multiplication → unary ( ( "/" | "*" ) unary )* ;
 //unary          → ( "!" | "-" ) unary
-//                    |primary
+//                    |call
+//call -> primary ( "(" arguments? ")" )* ;
+//arguments -> expression ( "," expression )* ;
 //primary        → NUMBER | STRING | "false" | "true" | "nil"
 //                            | "(" expression ")" ;
 //                            | IDENTIFIER ;
@@ -353,7 +355,24 @@ impl Parser {
                 Err(err) => Err(err),
             };
         }
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> Result<expr::Expr, String> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.matches(scanner::TokenType::LeftParen) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: expr::Expr) -> Option {
+        return None;
     }
 
     fn primary(&mut self) -> Result<expr::Expr, String> {
