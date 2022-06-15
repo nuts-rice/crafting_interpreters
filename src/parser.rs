@@ -39,8 +39,12 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //statement  → exprStmt
 //             | printstmt
 //             | ifStmt
+//             | forStmt
 //             | whileStmt
 //             | block ;
+//forStmt -> "for" "("(vardelc | exprStmt | ";")
+//               expression? ";"
+//               expression? ")" statement ;
 //whileStmt  -> "while" "(" expression ")" statement;
 //ifStmt -> "if" "(" expression ")" statement
 //block -> "{" declaration* "}";
@@ -120,8 +124,65 @@ impl Parser {
         if self.matches(scanner::TokenType::While) {
             return self.while_statement();
         }
+        if self.matches(scanner::TokenType::For) {
+            return self.for_statement();
+        }
 
         self.expression_statement()
+    }
+
+    fn for_statement(&mut self) -> Result<expr::Stmt, String> {
+        self.consume(scanner::TokenType::LeftParen, "Expected ( after for.")?;
+
+        let mut maybe_initializer: Option<expr::Stmt> = None;
+        if self.matches(scanner::TokenType::Semicolon) {
+        } else if self.matches(scanner::TokenType::Var) {
+            maybe_initializer = Some(self.var_decl()?)
+        } else {
+            maybe_initializer = Some(self.expression_statement()?)
+        }
+        let maybe_initializer = maybe_initializer;
+
+        let mut maybe_condition: Option<expr::Expr> = None;
+        if !self.check(scanner::TokenType::Semicolon) {
+            maybe_condition = Some(self.expression()?)
+        }
+        let maybe_condition = maybe_condition;
+
+        self.consume(
+            scanner::TokenType::Semicolon,
+            "Expected ; after loop condition",
+        )?;
+
+        let mut maybe_increment: Option<expr::Expr> = None;
+        if !self.check(scanner::TokenType::RightParen) {
+            maybe_increment = Some(self.expression()?);
+        }
+        let maybe_increment = maybe_increment;
+
+        self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ) after for clauses",
+        )?;
+
+        let mut body = self.statement()?;
+
+        if let Some(increment) = maybe_increment {
+            body = expr::Stmt::Block(vec![Box::new(body), Box::new(expr::Stmt::Expr(increment))])
+        }
+
+        let condition = match maybe_condition {
+            Some(cond) => cond,
+            None => expr::Expr::Literal(expr::Literal::True),
+        };
+        body = expr::Stmt::While(condition, Box::new(body));
+
+        if let Some(initializer) = maybe_initializer {
+            body = expr::Stmt::Block(vec![Box::new(initializer), Box::new(body)])
+        }
+        let body = body;
+
+        Ok(body)
     }
 
     fn while_statement(&mut self) -> Result<expr::Stmt, String> {
@@ -186,7 +247,7 @@ impl Parser {
             let equals = self.previous().clone();
             let value = self.assignment()?;
 
-            if let expr::Expr::Variable(sym) = &value {
+            if let expr::Expr::Variable(sym) = &expr {
                 return Ok(expr::Expr::Assign(sym.clone(), Box::new(value)));
             } else {
                 return Err(format!(
