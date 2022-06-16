@@ -371,8 +371,38 @@ impl Parser {
         Ok(expr)
     }
 
-    fn finish_call(&mut self, callee: expr::Expr) -> Option {
-        return None;
+    fn finish_call(&mut self, callee: expr::Expr) -> Result<expr::Expr, String> {
+        let mut arguments = Vec::new();
+
+        if !self.check(scanner::TokenType::LeftParen) {
+            loop {
+                if arguments.len() >= 255 {
+                    let peek_tok = self.peek();
+                    return Err(format!(
+                        "Cannot have more than 255 arguments to a function call. Line={}, col={} ",
+                        peek_tok.line, peek_tok.col
+                    ));
+                }
+                arguments.push(Box::new(self.expression()?));
+                if !self.matches(scanner::TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let token = self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ) after arguments.",
+        )?;
+
+        Ok(expr::Expr::Call(
+            Box::new(callee),
+            expr::SourceLocation {
+                line: token.line,
+                col: token.col,
+            },
+            arguments,
+        ))
     }
 
     fn primary(&mut self) -> Result<expr::Expr, String> {
