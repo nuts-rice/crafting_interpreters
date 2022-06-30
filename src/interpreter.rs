@@ -1,7 +1,36 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::expr;
 use std::fmt;
+
+trait Callable {
+    fn arity(&self) -> u8;
+    fn call(&self, interpreter: &Interpreter, args: &Vec<Value>) -> Result<Value, String>;
+}
+
+#[derive(Clone)]
+pub struct NativeFunction {
+    pub name: String,
+    pub arity: u8,
+    pub callable: fn(&Vec<Value>) -> Result<Value, String>,
+}
+impl fmt::Debug for NativeFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "NativeFunction({})", self.name)
+    }
+}
+
+impl Callable for NativeFunction {
+    fn arity(&self) -> u8 {
+        self.arity
+    }
+
+    fn call(&self, _interpreter: &Interpreter, args: &Vec<Value>) -> Result<Value, String> {
+        (self.callable)(args)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -9,6 +38,7 @@ pub enum Value {
     String(String),
     Bool(bool),
     Nil,
+    LoxFunction(LoxFunction),
 }
 
 #[derive(Debug)]
@@ -17,6 +47,58 @@ pub enum Type {
     String,
     Bool,
     NilType,
+    LoxFunction,
+}
+
+#[derive[Debug, Clone]]
+pub struct LoxFunction {
+    name: expr::Symbol,
+    parameters: Vec<expr::Symbol>,
+    body: Vec<expr::Stmt>,
+}
+
+impl Callable for LoxFunction {
+    fn arity(&self) -> u8 {
+        self.parameters.len().try_into().unwrap()
+    }
+
+    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, String> {
+        let env: HashMap<_, _> = self
+            .parameters
+            .iter()
+            .zip(args.iter())
+            .map(|param, arg| {
+                (
+                    param.name.clone(),
+                    (
+                        Some(arg.clone()),
+                        SourceLocation {
+                            line: param.line,
+                            col: param.col,
+                        },
+                    ),
+                )
+            })
+            .collect();
+        let mut interp2 = Interpreter {
+            env: Enviroment {
+                enclosing: Some(Box::new(interpreter.env.clone())),
+                venv: env,
+            },
+            globals: interpreter.globals.clone(),
+        };
+        interp2.interpret(&self.body)?;
+
+        Ok(Value::Nil)
+    }
+}
+
+fn as_callable(value: &Value) -> Option<&dyn Callable> {
+    match value {
+        Value::NativeFunction(f) => Some(f),
+        Value::LoxFunction(f) => Some(f),
+        _ => None,
+    }
 }
 
 pub fn type_of(val: &Value) -> Type {
@@ -25,6 +107,8 @@ pub fn type_of(val: &Value) -> Type {
         Value::String(_) => Type::String,
         Value::Bool(_) => Type::Bool,
         Value::Nil => Type::NilType,
+        Value::NativeFunction(_) => Type::NativeFunction,
+        Value::LoxFunction(_) => Type::LoxFunction,
     }
 }
 
@@ -138,6 +222,16 @@ impl Interpreter {
                 Ok(_) => Ok(()),
                 Err(err) => Err(err),
             },
+            expr::Stmt::FuncDecl(name, parameters, body) => {
+                let lox_function = LoxFunction {
+                    name: name.clone(),
+                    parameters: parameters.clone(),
+                    body: body.clone(),
+                };
+                self.env
+                    .define(name.clone(), Some(Value::LoxFunction(lox_function)));
+                Ok(())
+            }
             expr::Stmt::If(cond, if_true, maybe_if_false) => {
                 if Interpreter::is_truthy(&self.interpret_expr(cond)?) {
                     return Ok(self.execute(if_true)?);
@@ -232,14 +326,33 @@ impl Interpreter {
         arg_exprs: &Vec<Box<expr::Expr>>,
     ) -> Result<Value, String> {
         let callee = self.interpret_expr(callee_expr)?;
-        let maybe_args: Result<Vec<_>, _> = arg_exprs
-            .into_iter()
-            .map(|arg| self.interpret_expr(arg))
-            .collect();
+        match as_callable(&callee) {
+            Some(callable) => {
+                let maybe_args: Result<Vec<_>, _> = arg_exprs
+                    .iter()
+                    .map(|arg| self.interpret_expr(arg))
+                    .collect();
 
-        match maybe_args {
-            Ok(args) => Interpreter::execute_call(callee, loc, args),
-            Err(err) => Err(err),
+                match maybe_args {
+                    Ok(args) => {
+                        if args.len() != callable.arity().into {
+                            Err(format!("Invalid call at line={}, col={}: callee has arity {}, was called with {} arguments",
+                                    loc.line,
+                                    loc.col,
+                                    callable.arity(),
+                                    args.len()
+                                ))
+                        } else {
+                            callable.call(self, &args)
+                        }
+                    }
+                    Err(err) => Err(err),
+                }
+            }
+            None => Err(format!(
+                "Value {:?} is not callable at line = {}, col = {}",
+                callee, loc.line, loc.col
+            )),
         }
     }
 
@@ -308,7 +421,7 @@ impl Interpreter {
             (_, expr::BinaryOpType::NotEqual, _) => {
                 Ok(Value::Bool(!Interpreter::equals(&lhs, &rhs)))
             }
-            (_, _, _) => Err(format!(
+            _ => Err(format!(
                 "invalid operands in binary opertor {:?} of type {:?} and {:?} at line={}, col={}",
                 op.ty,
                 type_of(&lhs),
@@ -340,6 +453,14 @@ impl Interpreter {
                 "invalid application of unary op {:?} to object of type string at line = {}, col = {}",
                 op.ty, op.line, op.col
             )),
+            (_, Value::NativeFunction(_)) => Err(format!(
+                    "invalid application of unary op {:?} to object of type NativeFunction at line= {}, col = {}",
+                    op.ty, op.line, op.col
+            )),                                                         
+            (_, Value::LoxFunction(_)) => Err(format!(
+                    "invalid application of unary op {:?} to obkect of type LoxFunction at line = {}, col = {}",
+                    op.ty, op.line, op.col
+            )),                                                                                           
             (expr::UnaryOpType::Minus, Value::Bool(_)) => Err(format!(
                 "invalid application of unary op {:?} to object of type bool at line = {}, col = {}",         
                        op.ty, op.line, op.col
@@ -377,6 +498,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "'{}'", s),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "nil"),
+            Value::NativeFunction(func) => write!(f, "NativeFunction({})", func.name),
         }
     }
 }
