@@ -35,7 +35,7 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //Grammar
 //program   → declaration* EOF ;
 //declartion → funcDecl
-//              | varDecl  
+//              | varDecl
 //              | stamement;
 //funcDecl -> "func" function;
 //function -> IDENTIFIER "(" parameters? ")" block;
@@ -86,7 +86,7 @@ impl Parser {
         if self.matches(scanner::TokenType::Var) {
             return self.var_decl();
         }
-        if self.matches(scanner::TokenType::Func) {
+        if self.matches(scanner::TokenType::Fun) {
             return self.func_decl();
         }
         self.statement()
@@ -101,24 +101,23 @@ impl Parser {
             name: String::from_utf8(name_tok.lexeme).unwrap(),
             line: name_tok.line,
             col: name_tok.col,
-
         };
 
         self.consume(
             scanner::TokenType::LeftParen,
             "Expected ( after function name",
-            )?;
+        )?;
 
         let mut arguments = Vec::new();
 
-        if !self.check(scanner::TokenType::RightParen){
+        if !self.check(scanner::TokenType::RightParen) {
             loop {
                 if arguments.len() >= 255 {
                     let peek_tok = self.peek();
                     return Err(format!(
-                            "Cannot have more than 255 arguments to function call. Line = {}, col = {}",
-                            peek_tok.line, peek_tok.col
-                            ));
+                        "Cannot have more than 255 arguments to function call. Line = {}, col = {}",
+                        peek_tok.line, peek_tok.col
+                    ));
                 }
 
                 let tok = self
@@ -131,7 +130,7 @@ impl Parser {
                     col: tok.col,
                 });
 
-                if !self.matches(scanner::TokenType::Comma){
+                if !self.matches(scanner::TokenType::Comma) {
                     break;
                 }
             }
@@ -141,20 +140,15 @@ impl Parser {
         self.consume(
             scanner::TokenType::RightParen,
             "Expected ) after parameter list",
-            )?;
+        )?;
         self.consume(
             scanner::TokenType::LeftBrace,
             "Expected { before function body",
-            )?;
+        )?;
         let body = self.block()?;
 
-        Ok(expr::Stmt::funcDecl(func_symbol, arguments, body))
+        Ok(expr::Stmt::FuncDecl(func_symbol, arguments, body))
     }
-            
-                
-            
-        
-    
 
     fn var_decl(&mut self) -> Result<expr::Stmt, String> {
         let name_token = self
@@ -240,7 +234,7 @@ impl Parser {
         let mut body = self.statement()?;
 
         if let Some(increment) = maybe_increment {
-            body = expr::Stmt::Block(vec![Box::new(body), Box::new(expr::Stmt::Expr(increment))])
+            body = expr::Stmt::Block(vec![body, expr::Stmt::Expr(increment)])
         }
 
         let condition = match maybe_condition {
@@ -250,7 +244,7 @@ impl Parser {
         body = expr::Stmt::While(condition, Box::new(body));
 
         if let Some(initializer) = maybe_initializer {
-            body = expr::Stmt::Block(vec![Box::new(initializer), Box::new(body)])
+            body = expr::Stmt::Block(vec![initializer, body])
         }
         let body = body;
 
@@ -274,11 +268,11 @@ impl Parser {
         Ok(expr::Stmt::Print(expr))
     }
 
-    fn block(&mut self) -> Result<Vec<Box<expr::Stmt>>, String> {
-        let mut stmts: Vec<Box<expr::Stmt>> = Vec::new();
+    fn block(&mut self) -> Result<Vec<expr::Stmt>, String> {
+        let mut stmts = Vec::new();
 
         while !self.check(scanner::TokenType::RightBrace) && !self.is_at_end() {
-            stmts.push(Box::new(self.declaration()?))
+            stmts.push(self.declaration()?)
         }
         self.consume(scanner::TokenType::RightBrace, "Expected } after block")?;
 
@@ -459,22 +453,6 @@ impl Parser {
                 }
             }
         }
-        let token = self.consume(
-            scanner::TokenType::RightParen,
-            "Expected ) after arguments."
-             )?;
-
-        Ok(expr::Expr::Call(
-            Box::new(callee),
-                expr::SourceLocation {
-                   line: token.line,
-                    col: token.col
-               },
-               arguments,
-            ))    
-        }
-        
-    
         let token = self.consume(
             scanner::TokenType::RightParen,
             "Expected ) after arguments.",
@@ -722,5 +700,4 @@ impl Parser {
     fn previous(&self) -> &scanner::Token {
         &self.tokens[self.current - 1]
     }
-
-
+}

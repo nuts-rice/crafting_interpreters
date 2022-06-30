@@ -6,7 +6,7 @@ pub enum Expr {
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
     Grouping(Box<Expr>),
     Variable(Symbol),
-    Call(Box<Expr>, SourceLocation, Vec<Box<Expr>>),
+    Call(Box<Expr>, SourceLocation, Vec<Expr>),
     Assign(Symbol, Box<Expr>),
     Logical(Box<Expr>, LogicalOp, Box<Expr>),
 }
@@ -35,9 +35,10 @@ pub enum Stmt {
     Expr(Expr),
     Print(Expr),
     VarDecl(Symbol, Option<Expr>),
-    Block(Vec<Box<Stmt>>),
+    Block(Vec<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
+    FuncDecl(Symbol, Vec<Symbol>, Vec<Stmt>),
 }
 
 //single operand

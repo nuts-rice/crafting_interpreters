@@ -7,14 +7,14 @@ use std::fmt;
 
 trait Callable {
     fn arity(&self) -> u8;
-    fn call(&self, interpreter: &Interpreter, args: &Vec<Value>) -> Result<Value, String>;
+    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, String>;
 }
 
 #[derive(Clone)]
 pub struct NativeFunction {
     pub name: String,
     pub arity: u8,
-    pub callable: fn(&Vec<Value>) -> Result<Value, String>,
+    pub callable: fn(&[Value]) -> Result<Value, String>,
 }
 impl fmt::Debug for NativeFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -27,30 +27,12 @@ impl Callable for NativeFunction {
         self.arity
     }
 
-    fn call(&self, _interpreter: &Interpreter, args: &Vec<Value>) -> Result<Value, String> {
+    fn call(&self, _interpreter: &Interpreter, args: &[Value]) -> Result<Value, String> {
         (self.callable)(args)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Value {
-    Number(f64),
-    String(String),
-    Bool(bool),
-    Nil,
-    LoxFunction(LoxFunction),
-}
-
-#[derive(Debug)]
-pub enum Type {
-    Number,
-    String,
-    Bool,
-    NilType,
-    LoxFunction,
-}
-
-#[derive[Debug, Clone]]
 pub struct LoxFunction {
     name: expr::Symbol,
     parameters: Vec<expr::Symbol>,
@@ -67,7 +49,7 @@ impl Callable for LoxFunction {
             .parameters
             .iter()
             .zip(args.iter())
-            .map(|param, arg| {
+            .map(|(param, arg)| {
                 (
                     param.name.clone(),
                     (
@@ -80,6 +62,7 @@ impl Callable for LoxFunction {
                 )
             })
             .collect();
+
         let mut interp2 = Interpreter {
             env: Enviroment {
                 enclosing: Some(Box::new(interpreter.env.clone())),
@@ -93,12 +76,32 @@ impl Callable for LoxFunction {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Value {
+    Number(f64),
+    String(String),
+    Bool(bool),
+    Nil,
+    NativeFunction(NativeFunction),
+    LoxFunction(LoxFunction),
+}
+
 fn as_callable(value: &Value) -> Option<&dyn Callable> {
     match value {
         Value::NativeFunction(f) => Some(f),
         Value::LoxFunction(f) => Some(f),
         _ => None,
     }
+}
+
+#[derive(Debug)]
+pub enum Type {
+    Number,
+    String,
+    Bool,
+    NilType,
+    NativeFunction,
+    LoxFunction,
 }
 
 pub fn type_of(val: &Value) -> Type {
@@ -203,11 +206,44 @@ impl Enviroment {
     }
 }
 
-#[derive(Default)]
 struct Interpreter {
     env: Enviroment,
+    globals: Enviroment,
 }
 
+impl Default for Interpreter {
+    fn default() -> Interpreter {
+        let mut globals_venv = HashMap::new();
+        globals_venv.insert(
+            String::from("clock"),
+            (
+                Some(Value::NativeFunction(NativeFunction {
+                    name: String::from("clock"),
+                    arity: 0,
+                    callable: |_| {
+                        let start = SystemTime::now();
+                        let since_epoch = start.duration_since(UNIX_EPOCH).unwrap();
+
+                        Ok(Value::Number(since_epoch.as_millis() as f64))
+                    },
+                })),
+                SourceLocation {
+                    line: 420,
+                    col: 420,
+                },
+            ),
+        );
+        let globals = Enviroment {
+            enclosing: None,
+            venv: globals_venv,
+        };
+
+        Interpreter {
+            env: Default::default(),
+            globals,
+        }
+    }
+}
 impl Interpreter {
     pub fn interpret(&mut self, stmts: &[expr::Stmt]) -> Result<(), String> {
         for stmt in stmts.iter() {
@@ -266,7 +302,7 @@ impl Interpreter {
                 if let Some(enclosing) = self.env.enclosing.clone() {
                     self.env = *enclosing
                 } else {
-                    assert!(false, "nope")
+                    panic!("nope")
                 }
 
                 Ok(())
@@ -321,9 +357,9 @@ impl Interpreter {
 
     fn call(
         &mut self,
-        callee_expr: &Box<expr::Expr>,
+        callee_expr: &expr::Expr,
         loc: &expr::SourceLocation,
-        arg_exprs: &Vec<Box<expr::Expr>>,
+        arg_exprs: &[expr::Expr],
     ) -> Result<Value, String> {
         let callee = self.interpret_expr(callee_expr)?;
         match as_callable(&callee) {
@@ -335,7 +371,7 @@ impl Interpreter {
 
                 match maybe_args {
                     Ok(args) => {
-                        if args.len() != callable.arity().into {
+                        if args.len() != callable.arity().into() {
                             Err(format!("Invalid call at line={}, col={}: callee has arity {}, was called with {} arguments",
                                     loc.line,
                                     loc.col,
@@ -456,11 +492,11 @@ impl Interpreter {
             (_, Value::NativeFunction(_)) => Err(format!(
                     "invalid application of unary op {:?} to object of type NativeFunction at line= {}, col = {}",
                     op.ty, op.line, op.col
-            )),                                                         
+            )),
             (_, Value::LoxFunction(_)) => Err(format!(
                     "invalid application of unary op {:?} to obkect of type LoxFunction at line = {}, col = {}",
                     op.ty, op.line, op.col
-            )),                                                                                           
+            )),
             (expr::UnaryOpType::Minus, Value::Bool(_)) => Err(format!(
                 "invalid application of unary op {:?} to object of type bool at line = {}, col = {}",         
                        op.ty, op.line, op.col
@@ -499,6 +535,7 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "nil"),
             Value::NativeFunction(func) => write!(f, "NativeFunction({})", func.name),
+            Value::LoxFunction(func) => write!(f, "LoxFunction({:?})", func.name),
         }
     }
 }

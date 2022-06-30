@@ -16,21 +16,20 @@ fn main() {
     match scanner::scan_tokens(fs::read_to_string(&args[1]).unwrap()) {
         Ok(tokens) => {
             let stmts_maybe = parser::parse(tokens);
-            
-                    
-                    match stmts_maybe {
-                        Ok(stmts) => {
-                            let interpret_res = interpreter::interpret(&stmts);
-                            
-                            match stmts_maybe {
-                                Ok(_) => {}
-                            
-                                Err(err) => println!("Intreprter error:\n{}", err),
-                        }   
+
+            match stmts_maybe {
+                Ok(stmts) => {
+                    let interpret_res = interpreter::interpret(&stmts);
+
+                    match interpret_res {
+                        Ok(_) => {}
+
+                        Err(err) => println!("Interpreter error:\n{}", err),
                     }
-                    Err(err) => println!("Parse error: {}", err),
                 }
+                Err(err) => println!("Parse error: {}", err),
             }
-            Err(err) => println!("lexical error: {}", err),
         }
+        Err(err) => println!("lexical error: {}", err),
     }
+}
