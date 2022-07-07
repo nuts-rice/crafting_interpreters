@@ -39,6 +39,7 @@ pub enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     FuncDecl(Symbol, Vec<Symbol>, Vec<Stmt>),
+    Return(SourceLocation, Option<Expr>),
 }
 
 //single operand

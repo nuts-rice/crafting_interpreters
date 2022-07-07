@@ -2,10 +2,20 @@ use crate::expr;
 use crate::scanner;
 
 #[allow(dead_code)]
-#[derive(Default)]
 struct Parser {
     tokens: Vec<scanner::Token>,
     current: usize,
+    in_funcdec: bool,
+}
+
+impl Default for Parser {
+    fn default() -> Parser {
+        Parser {
+            tokens: Vec::new(),
+            current: 0,
+            in_funcdec: false,
+        }
+    }
 }
 
 pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
@@ -44,7 +54,9 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //             | ifStmt
 //             | forStmt
 //             | whileStmt
-//             | block ;
+//             | returnStmt
+//             | block;
+//returnStmt -> "return" expression? ";" ;
 //forStmt -> "for" "("(vardelc | exprStmt | ";")
 //               expression? ";"
 //               expression? ")" statement ;
@@ -145,8 +157,9 @@ impl Parser {
             scanner::TokenType::LeftBrace,
             "Expected { before function body",
         )?;
+        self.in_funcdec = true;
         let body = self.block()?;
-
+        self.in_funcdec = false;
         Ok(expr::Stmt::FuncDecl(func_symbol, arguments, body))
     }
 
@@ -193,8 +206,40 @@ impl Parser {
         if self.matches(scanner::TokenType::For) {
             return self.for_statement();
         }
+        if self.matches(scanner::TokenType::Return) {
+            return self.return_statement();
+        }
 
         self.expression_statement()
+    }
+
+    fn return_statement(&mut self) -> Result<expr::Stmt, String> {
+        let prev_tok = self.previous().clone();
+        if !self.in_funcdec {
+            return Err(format!(
+                "return statement not enclosed in a FunDecl at line={},col={}",
+                prev_tok.line, prev_tok.col
+            ));
+        }
+
+        let maybe_retval = if !self.matches(scanner::TokenType::Semicolon) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume(
+            scanner::TokenType::Semicolon,
+            "Expected ; after return value",
+        )?;
+
+        Ok(expr::Stmt::Return(
+            expr::SourceLocation {
+                line: prev_tok.line,
+                col: prev_tok.col,
+            },
+            maybe_retval,
+        ))
     }
 
     fn for_statement(&mut self) -> Result<expr::Stmt, String> {

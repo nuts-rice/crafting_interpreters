@@ -7,7 +7,7 @@ use std::fmt;
 
 trait Callable {
     fn arity(&self) -> u8;
-    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, String>;
+    fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String>;
 }
 
 #[derive(Clone)]
@@ -27,16 +27,16 @@ impl Callable for NativeFunction {
         self.arity
     }
 
-    fn call(&self, _interpreter: &Interpreter, args: &[Value]) -> Result<Value, String> {
+    fn call(&self, _interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String> {
         (self.callable)(args)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct LoxFunction {
-    name: expr::Symbol,
-    parameters: Vec<expr::Symbol>,
-    body: Vec<expr::Stmt>,
+    pub name: expr::Symbol,
+    pub parameters: Vec<expr::Symbol>,
+    pub body: Vec<expr::Stmt>,
 }
 
 impl Callable for LoxFunction {
@@ -44,7 +44,7 @@ impl Callable for LoxFunction {
         self.parameters.len().try_into().unwrap()
     }
 
-    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, String> {
+    fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String> {
         let env: HashMap<_, _> = self
             .parameters
             .iter()
@@ -69,10 +69,17 @@ impl Callable for LoxFunction {
                 venv: env,
             },
             globals: interpreter.globals.clone(),
+            retval: None,
+            output: Vec::new(),
         };
         interp2.interpret(&self.body)?;
 
-        Ok(Value::Nil)
+        interpreter.output.extend(interp2.output);
+
+        Ok(match interp2.retval {
+            Some(val) => val,
+            None => Value::Nil,
+        })
     }
 }
 
@@ -115,11 +122,12 @@ pub fn type_of(val: &Value) -> Type {
     }
 }
 
-pub fn interpret(stmts: &[expr::Stmt]) -> Result<(), String> {
+pub fn interpret(stmts: &[expr::Stmt]) -> Result<String, String> {
     let mut interpreter = Interpreter {
         ..Default::default()
     };
-    interpreter.interpret(stmts)
+    interpreter.interpret(stmts)?;
+    Ok(interpreter.output.join("\n"))
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +217,8 @@ impl Enviroment {
 struct Interpreter {
     env: Enviroment,
     globals: Enviroment,
+    retval: Option<Value>,
+    output: Vec<String>,
 }
 
 impl Default for Interpreter {
@@ -241,6 +251,8 @@ impl Default for Interpreter {
         Interpreter {
             env: Default::default(),
             globals,
+            retval: None,
+            output: Vec::new(),
         }
     }
 }
@@ -253,6 +265,9 @@ impl Interpreter {
     }
 
     pub fn execute(&mut self, stmt: &expr::Stmt) -> Result<(), String> {
+        if self.retval.is_some() {
+            return Ok(());
+        }
         match stmt {
             expr::Stmt::Expr(e) => match self.interpret_expr(e) {
                 Ok(_) => Ok(()),
@@ -279,7 +294,7 @@ impl Interpreter {
             }
             expr::Stmt::Print(e) => match self.interpret_expr(e) {
                 Ok(val) => {
-                    println!("{}", val);
+                    self.output.push(format!("{}", val));
                     Ok(())
                 }
                 Err(err) => Err(err),
@@ -312,6 +327,14 @@ impl Interpreter {
                 while Interpreter::is_truthy(&self.interpret_expr(cond)?) {
                     self.execute(body)?;
                 }
+                Ok(())
+            }
+            expr::Stmt::Return(_, maybe_res) => {
+                self.retval = Some(if let Some(res) = maybe_res {
+                    self.interpret_expr(res)?
+                } else {
+                    Value::Nil
+                });
                 Ok(())
             }
         }
