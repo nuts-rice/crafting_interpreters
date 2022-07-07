@@ -562,3 +562,50 @@ impl fmt::Display for Value {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::interpreter;
+    use crate::parser;
+    use crate::scanner;
+
+    fn evaluate(code: &str) -> Result<String, String> {
+        let tokens = scanner::scan_tokens(code.to_string()).unwrap();
+        let stmts = parser::parse(tokens)?;
+        interpreter::interpret(&stmts)
+    }
+
+    #[test]
+    fn test_fact() {
+        fn fact(n: i32) -> i32 {
+            if n <= 1 {
+                return 1;
+            }
+            return n * fact(n - 1);
+        };
+
+        let result = evaluate(
+            "fun fact(n) { \n\
+                if (n <= 1) { \n\
+                    return 1; \n\
+                }\n\
+                return n * fact(n - 1); \n\
+            } \n\
+            print fact(10); ",
+        );
+        match res {
+            Ok(output) => assert_eq!(output, format!("{}", fact(10))),
+            Err(err) => panic!(err),
+        }
+    }
+
+    #[test]
+    fn invalid_binary_operands_test() {
+        let res = evaluate("1 + \"string\";");
+
+        match res {
+            Ok(output) => panic!(output),
+            Err(err) => assert!(err.starts_with("invalid operands in binary operator")),
+        }
+    }
+}
