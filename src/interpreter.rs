@@ -83,6 +83,25 @@ impl Callable for LoxFunction {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LoxClass {
+    pub name: expr::Symbol,
+}
+
+impl Callable for LoxClass {
+    fn arity(&self) -> u8 {
+        0
+    }
+    fn call(&self, _interpreter: &mut Interpreter, _args: &[Value]) -> Result<Value, String> {
+        Ok(Value::LoxInstance(LoxInstance { cls: self.clone() })) //TODO: CallBacks within instance
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LoxInstance {
+    pub cls: LoxClass,
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Number(f64),
@@ -91,12 +110,15 @@ pub enum Value {
     Nil,
     NativeFunction(NativeFunction),
     LoxFunction(LoxFunction),
+    LoxClass(LoxClass),
+    LoxInstance(LoxInstance),
 }
 
 fn as_callable(value: &Value) -> Option<&dyn Callable> {
     match value {
         Value::NativeFunction(f) => Some(f),
         Value::LoxFunction(f) => Some(f),
+        Value::LoxClass(cls) => Some(cls),
         _ => None,
     }
 }
@@ -109,6 +131,8 @@ pub enum Type {
     NilType,
     NativeFunction,
     LoxFunction,
+    LoxClass,
+    LoxInstance,
 }
 
 pub fn type_of(val: &Value) -> Type {
@@ -119,6 +143,8 @@ pub fn type_of(val: &Value) -> Type {
         Value::Nil => Type::NilType,
         Value::NativeFunction(_) => Type::NativeFunction,
         Value::LoxFunction(_) => Type::LoxFunction,
+        Value::LoxClass(_) => Type::LoxClass,
+        Value::LoxInstance(_) => Type::LoxInstance,
     }
 }
 
@@ -273,7 +299,17 @@ impl Interpreter {
                 Ok(_) => Ok(()),
                 Err(err) => Err(err),
             },
-            expr::Stmt::FuncDecl(name, parameters, body) => {
+            expr::Stmt::ClassDecl(sym, _methods) => {
+                self.env.define(sym.clone(), None);
+                let cls = LoxClass { name: sym.clone() };
+                self.env.assign(sym.clone(), &Value::LoxClass(cls))?;
+                Ok(())
+            }
+            expr::Stmt::FuncDecl(expr::FuncDecl {
+                name,
+                parameters: parameters,
+                body,
+            }) => {
                 let lox_function = LoxFunction {
                     name: name.clone(),
                     parameters: parameters.clone(),
@@ -520,6 +556,14 @@ impl Interpreter {
                     "invalid application of unary op {:?} to obkect of type LoxFunction at line = {}, col = {}",
                     op.ty, op.line, op.col
             )),
+            (_, Value::LoxClass(_)) => Err(format!(
+                    "invalid application of unary op {:?} to object of type LoxClass at line = {}, col = {}",
+                    op.ty, op.line, op.col
+            )),
+            (_, Value::LoxInstance(inst)) => Err(format!(
+                    "invalid application of unary op {:?} to object of type LoxInstance at line = {}, col = {}",
+                    op.ty, op.line, op.col
+            )),
             (expr::UnaryOpType::Minus, Value::Bool(_)) => Err(format!(
                 "invalid application of unary op {:?} to object of type bool at line = {}, col = {}",         
                        op.ty, op.line, op.col
@@ -559,6 +603,8 @@ impl fmt::Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::NativeFunction(func) => write!(f, "NativeFunction({})", func.name),
             Value::LoxFunction(func) => write!(f, "LoxFunction({:?})", func.name),
+            Value::LoxClass(cls) => write!(f, "LoxClass({})", cls.name.name),
+            Value::LoxInstance(inst) => write!(f, "LoxInstance({})", inst.cls.name.name),
         }
     }
 }
@@ -593,9 +639,9 @@ mod tests {
             } \n\
             print fact(10); ",
         );
-        match res {
+        match result {
             Ok(output) => assert_eq!(output, format!("{}", fact(10))),
-            Err(err) => panic!(err),
+            Err(err) => panic!("{}", err),
         }
     }
 
@@ -604,7 +650,7 @@ mod tests {
         let res = evaluate("1 + \"string\";");
 
         match res {
-            Ok(output) => panic!(output),
+            Ok(output) => panic!("{}", output),
             Err(err) => assert!(err.starts_with("invalid operands in binary operator")),
         }
     }

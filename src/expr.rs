@@ -31,6 +31,13 @@ pub struct Symbol {
 }
 
 #[derive(Debug, Clone)]
+pub struct FuncDecl {
+    pub name: Symbol,
+    pub params: Vec<Symbol>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(Expr),
     Print(Expr),
@@ -38,7 +45,8 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
-    FuncDecl(Symbol, Vec<Symbol>, Vec<Stmt>),
+    FuncDecl(FuncDecl),
+    ClassDecl(Symbol, Vec<FuncDecl>),
     Return(SourceLocation, Option<Expr>),
 }
 

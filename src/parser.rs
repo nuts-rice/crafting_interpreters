@@ -44,11 +44,14 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 
 //Grammar
 //program   → declaration* EOF ;
-//declartion → funcDecl
+//declartion → classDecl
+//              |funcDecl
 //              | varDecl
 //              | stamement;
+//classDecl -> "class" IDENTIFIER "{" function* "}" ;
 //funcDecl -> "func" function;
 //function -> IDENTIFIER "(" parameters? ")" block;
+//parameters -> IDENTIFIER ( "," IDENTIFIER )* ;
 //statement  → exprStmt
 //             | printstmt
 //             | ifStmt
@@ -99,68 +102,47 @@ impl Parser {
             return self.var_decl();
         }
         if self.matches(scanner::TokenType::Fun) {
-            return self.func_decl();
+            return Ok(expr::Stmt::FuncDecl(self.func_decl("function")?));
+        }
+        if self.matches(scanner::TokenType::Class) {
+            return self.class_decl();
         }
         self.statement()
     }
 
-    fn func_decl(&mut self) -> Result<expr::Stmt, String> {
+    fn class_decl(&mut self) -> Result<expr::Stmt, String> {
         let name_tok = self
-            .consume(scanner::TokenType::Identifier, "Expected variable name")?
+            .consume(scanner::TokenType::Identifier, "Expected class name")?
             .clone();
 
-        let func_symbol = expr::Symbol {
+        let class_symbol = expr::Symbol {
             name: String::from_utf8(name_tok.lexeme).unwrap(),
             line: name_tok.line,
             col: name_tok.col,
         };
 
-        self.consume(
-            scanner::TokenType::LeftParen,
-            "Expected ( after function name",
-        )?;
+        self.consume(scanner::TokenType::LeftBrace, "Expected ( after class name")?;
 
-        let mut arguments = Vec::new();
+        let mut methods = Vec::new();
 
-        if !self.check(scanner::TokenType::RightParen) {
-            loop {
-                if arguments.len() >= 255 {
-                    let peek_tok = self.peek();
-                    return Err(format!(
-                        "Cannot have more than 255 arguments to function call. Line = {}, col = {}",
-                        peek_tok.line, peek_tok.col
-                    ));
-                }
-
-                let tok = self
-                    .consume(scanner::TokenType::Identifier, "Expected parameter name")?
-                    .clone();
-
-                arguments.push(expr::Symbol {
-                    name: String::from_utf8(tok.lexeme).unwrap(),
-                    line: tok.line,
-                    col: tok.col,
-                });
-
-                if !self.matches(scanner::TokenType::Comma) {
-                    break;
-                }
-            }
+        while !self.check(scanner::TokenType::RightBrace) && !self.is_at_end() {
+            methods.push(self.func_decl("method")?);
         }
-        let arguments = arguments;
+        let methods = methods;
 
         self.consume(
-            scanner::TokenType::RightParen,
-            "Expected ) after parameter list",
+            scanner::TokenType::RightBrace,
+            "Expected } after class body",
         )?;
-        self.consume(
-            scanner::TokenType::LeftBrace,
-            "Expected { before function body",
+
+        Ok(expr::Stmt::ClassDecl(class_symbol, methods))
+    }
+
+    fn func_decl(&mut self, kind: &str) -> Result<expr::FuncDecl, String> {
+        let name_tok = self.consume(
+            scanner::TokenType::Identifier,
+            format!("Expected {} name", kind).as_ref(),
         )?;
-        self.in_funcdec = true;
-        let body = self.block()?;
-        self.in_funcdec = false;
-        Ok(expr::Stmt::FuncDecl(func_symbol, arguments, body))
     }
 
     fn var_decl(&mut self) -> Result<expr::Stmt, String> {
