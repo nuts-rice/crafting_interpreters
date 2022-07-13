@@ -139,10 +139,73 @@ impl Parser {
     }
 
     fn func_decl(&mut self, kind: &str) -> Result<expr::FuncDecl, String> {
-        let name_tok = self.consume(
-            scanner::TokenType::Identifier,
-            format!("Expected {} name", kind).as_ref(),
+        let name_tok = self
+            .consume(
+                scanner::TokenType::Identifier,
+                format!("Expected {} name", kind).as_ref(),
+            )?
+            .clone();
+
+        let func_symbol = expr::Symbol {
+            name: String::from_utf8(name_tok.lexeme).unwrap(),
+            line: name_tok.line,
+            col: name_tok.col,
+        };
+
+        self.consume(
+            scanner::TokenType::LeftParen,
+            format!("Expected ( after {} name", kind).as_ref(),
+        );
+
+        let mut parameters = Vec::new();
+
+        if !self.check(scanner::TokenType::RightParen) {
+            loop {
+                if parameters.len() >= 255 {
+                    let peek_tok = self.peek();
+                    return Err(format!(
+                        "Cannot have more than 255 parameters in a {} declartion. Line={}, col={}",
+                        kind, peek_tok.line, peek_tok.col
+                    ));
+                }
+
+                let tok = self
+                    .consume(scanner::TokenType::Identifier, "Expected parameter name")?
+                    .clone();
+
+                parameters.push(expr::Symbol {
+                    name: String::from_utf8(tok.lexeme).unwrap(),
+                    line: tok.line,
+                    col: tok.col,
+                });
+
+                if !self.matches(scanner::TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        let parameters = parameters;
+
+        self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ) after parameter list",
         )?;
+
+        self.consume(
+            scanner::TokenType::LeftBrace,
+            "Expected { before function body",
+        )?;
+
+        let saved_is_in_fundec = self.in_funcdec;
+        self.in_funcdec = true;
+        let body = self.block()?;
+        self.in_funcdec = saved_is_in_fundec;
+
+        Ok(expr::FuncDecl {
+            name: func_symbol,
+            params: parameters,
+            body: body,
+        })
     }
 
     fn var_decl(&mut self) -> Result<expr::Stmt, String> {

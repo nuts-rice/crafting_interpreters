@@ -307,7 +307,7 @@ impl Interpreter {
             }
             expr::Stmt::FuncDecl(expr::FuncDecl {
                 name,
-                parameters: parameters,
+                params: parameters,
                 body,
             }) => {
                 let lox_function = LoxFunction {
