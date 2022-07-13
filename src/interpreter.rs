@@ -63,25 +63,17 @@ impl Callable for LoxFunction {
                 )
             })
             .collect();
+        let saved_env = interpreter.env.clone();
+        let saved_retval = interpreter.retval.clone();
         let mut env = self.closure.clone();
         env.venv.extend(args_env);
         let env = env;
-        let mut interp2 = Interpreter {
-            counter: interpreter.counter,
-            lox_functions: interpreter.lox_functions.clone(),
-            lox_instances: interpreter.lox_instances.clone(),
-            env,
-            globals: interpreter.globals.clone(),
-            retval: None,
-            output: Vec::new(),
-        };
-        interp2.interpret(&self.body)?;
-
-        interpreter.lox_functions = interp2.lox_functions;
-        interpreter.lox_instances = interp2.lox_instances;
-        interpreter.output.extend(interp2.output);
-
-        Ok(match interp2.retval {
+        interpreter.env = env;
+        interpreter.interpret(&self.body)?;
+        let retval = interpreter.retval.clone();
+        interpreter.env = saved_env;
+        interpreter.retval = saved_retval;
+        Ok(match retval {
             Some(val) => val,
             None => Value::Nil,
         })
@@ -469,7 +461,7 @@ impl Interpreter {
         }
     }
 
-    fn getattr(&mut self, lhs: &Box<expr::Expr>, attr: &expr::Symbol) -> Result<Value, String> {
+    fn getattr(&mut self, lhs: &expr::Expr, attr: &expr::Symbol) -> Result<Value, String> {
         let val = self.interpret_expr(lhs)?;
         match val {
             Value::LoxInstance(_, id) => match self.lox_instances.get(&id) {
@@ -488,9 +480,9 @@ impl Interpreter {
 
     fn setattr(
         &mut self,
-        lhs_expr: &Box<expr::Expr>,
+        lhs_expr: &expr::Expr,
         attr: &expr::Symbol,
-        rhs_expr: &Box<expr::Expr>,
+        rhs_expr: &expr::Expr,
     ) -> Result<Value, String> {
         let lhs = self.interpret_expr(lhs_expr)?;
         let rhs = self.interpret_expr(rhs_expr)?;

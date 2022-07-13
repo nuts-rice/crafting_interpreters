@@ -204,7 +204,7 @@ impl Parser {
         Ok(expr::FuncDecl {
             name: func_symbol,
             params: parameters,
-            body: body,
+            body,
         })
     }
 
