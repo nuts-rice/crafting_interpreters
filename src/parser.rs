@@ -69,7 +69,7 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //varDecl -> "var" IDENTIFIER ("=" expression)? ";" ;
 //printStmt → "print" expression ";" ;
 //expression     → assignment ;
-//assignment -> IDENTIFIER "=" assignment
+//assignment -> ( call "." )? Identifier "=" assignment
 //                        |logic_or;
 //logic_or -> logic_and ( "or" logic_and )* ;
 //logic_and -> equality ( "and" equality )* ;
@@ -79,7 +79,7 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //multiplication → unary ( ( "/" | "*" ) unary )* ;
 //unary          → ( "!" | "-" ) unary
 //                    |call
-//call -> primary ( "(" arguments? ")" )* ;
+//call -> primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
 //arguments -> expression ( "," expression )* ;
 //primary        → NUMBER | STRING | "false" | "true" | "nil"
 //                            | "(" expression ")" ;
@@ -405,6 +405,8 @@ impl Parser {
 
             if let expr::Expr::Variable(sym) = &expr {
                 return Ok(expr::Expr::Assign(sym.clone(), Box::new(value)));
+            } else if let expr::Expr::Get(e, attr) = expr {
+                return Ok(expr::Expr::Set(e, attr, Box::new(value)));
             } else {
                 return Err(format!(
                     "invalid assignment target at line={}, col={}",
@@ -518,6 +520,21 @@ impl Parser {
         loop {
             if self.matches(scanner::TokenType::LeftParen) {
                 expr = self.finish_call(expr)?;
+            } else if self.matches(scanner::TokenType::Dot) {
+                let name_tok = self
+                    .consume(
+                        scanner::TokenType::Identifier,
+                        "Expected property name after '.'",
+                    )?
+                    .clone();
+                expr = expr::Expr::Get(
+                    Box::new(expr),
+                    expr::Symbol {
+                        name: String::from_utf8(name_tok.lexeme).unwrap(),
+                        line: name_tok.line,
+                        col: name_tok.col,
+                    },
+                );
             } else {
                 break;
             }

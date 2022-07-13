@@ -7,8 +7,10 @@ pub enum Expr {
     Grouping(Box<Expr>),
     Variable(Symbol),
     Call(Box<Expr>, SourceLocation, Vec<Expr>),
+    Get(Box<Expr>, Symbol),
     Assign(Symbol, Box<Expr>),
     Logical(Box<Expr>, LogicalOp, Box<Expr>),
+    Set(Box<Expr>, Symbol, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
