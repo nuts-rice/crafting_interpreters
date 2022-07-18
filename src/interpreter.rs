@@ -65,14 +65,15 @@ impl Callable for LoxFunction {
             .collect();
         let saved_env = interpreter.env.clone();
         let saved_retval = interpreter.retval.clone();
+
         let mut env = self.closure.clone();
         env.venv.extend(args_env);
         let env = env;
+
         interpreter.env = env;
         interpreter.interpret(&self.body)?;
+
         let retval = interpreter.retval.clone();
-        interpreter.env = saved_env;
-        interpreter.retval = saved_retval;
         Ok(match retval {
             Some(val) => val,
             None => Value::Nil,
@@ -83,6 +84,8 @@ impl Callable for LoxFunction {
 #[derive(Clone, Debug)]
 pub struct LoxClass {
     pub name: expr::Symbol,
+    pub id: u64,
+    pub methods: HashMap<String, u64>,
 }
 
 impl Callable for LoxClass {
@@ -90,24 +93,45 @@ impl Callable for LoxClass {
         0
     }
     fn call(&self, interpreter: &mut Interpreter, _args: &[Value]) -> Result<Value, String> {
-        Ok(interpreter.create_instance(&self.name))
+        Ok(interpreter.create_instance(&self.name, self.id))
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct LoxInstance {
     pub class_name: expr::Symbol,
+    pub class_id: u64,
     pub fields: HashMap<String, Value>,
 }
 
 impl LoxInstance {
-    fn getattr(&self, attr: &expr::Symbol) -> Result<Value, String> {
-        match self.fields.get(&attr.name) {
+    fn getattr(&self, attr: String, interpreter: &Interpreter) -> Result<Value, String> {
+        match self.fields.get(&attr) {
             Some(val) => Ok(val.clone()),
-            None => Err(format!(
-                "AttributeError: '{}' instance has no '{}' attribute.",
-                self.class_name.name, attr.name
-            )),
+            None => {
+                if let Some(cls) = interpreter.lox_classes.get(&self.class_id) {
+                    if let Some(method_id) = cls.methods.get(&attr) {
+                        if let Some(lox_fn) = interpreter.lox_functions.get(method_id) {
+                            Ok(Value::LoxFunction(lox_fn.name.clone(), *method_id))
+                        } else {
+                            panic!(
+                                "Internal interpreter error! Could not find lox fn with id {}.",
+                                method_id
+                            );
+                        }
+                    } else {
+                        Err(format!(
+                            "Attribute Error: '{}' instance has no '{}' attribute.",
+                            self.class_name.name, attr
+                        ))
+                    }
+                } else {
+                    panic!(
+                        "Internal interpreter error! Could not find class with id {}",
+                        self.class_id
+                    );
+                }
+            }
         }
     }
 }
@@ -120,7 +144,7 @@ pub enum Value {
     Nil,
     NativeFunction(NativeFunction),
     LoxFunction(expr::Symbol, u64),
-    LoxClass(LoxClass),
+    LoxClass(expr::Symbol, u64),
     LoxInstance(expr::Symbol, u64),
 }
 
@@ -134,7 +158,13 @@ fn as_callable(interpreter: &Interpreter, value: &Value) -> Option<Box<dyn Calla
                 id
             ),
         },
-        Value::LoxClass(cls) => Some(Box::new(cls.clone())),
+        Value::LoxClass(cls, id) => match interpreter.lox_classes.get(id) {
+            Some(cls) => Some(Box::new(cls.clone())),
+            None => panic!(
+                "Internal interpreter error! Could not find loxclass with id {}.",
+                id
+            ),
+        },
         _ => None,
     }
 }
@@ -159,7 +189,7 @@ pub fn type_of(val: &Value) -> Type {
         Value::Nil => Type::NilType,
         Value::NativeFunction(_) => Type::NativeFunction,
         Value::LoxFunction(_, _) => Type::LoxFunction,
-        Value::LoxClass(_) => Type::LoxClass,
+        Value::LoxClass(_, _) => Type::LoxClass,
         Value::LoxInstance(_, _) => Type::LoxInstance,
     }
 }
@@ -260,6 +290,7 @@ pub struct Interpreter {
     pub counter: u64,
     pub lox_functions: HashMap<u64, LoxFunction>,
     pub lox_instances: HashMap<u64, LoxInstance>,
+    pub lox_classes: HashMap<u64, LoxClass>,
     pub env: Enviroment,
     pub globals: Enviroment,
     pub retval: Option<Value>,
@@ -297,6 +328,7 @@ impl Default for Interpreter {
             counter: 0,
             lox_functions: HashMap::new(),
             lox_instances: HashMap::new(),
+            lox_classes: HashMap::new(),
             env: Default::default(),
             globals,
             retval: None,
@@ -319,10 +351,11 @@ impl Interpreter {
         res
     }
 
-    fn create_instance(&mut self, class_name: &expr::Symbol) -> Value {
+    fn create_instance(&mut self, class_name: &expr::Symbol, class_id: u64) -> Value {
         let inst_id = self.alloc_id();
         let inst = LoxInstance {
             class_name: class_name.clone(),
+            class_id,
             fields: HashMap::new(),
         };
         self.lox_instances.insert(inst_id, inst);
@@ -338,10 +371,31 @@ impl Interpreter {
                 Ok(_) => Ok(()),
                 Err(err) => Err(err),
             },
-            expr::Stmt::ClassDecl(sym, _methods) => {
-                self.env.define(sym.clone(), None);
-                let cls = LoxClass { name: sym.clone() };
-                self.env.assign(sym.clone(), &Value::LoxClass(cls))?;
+            expr::Stmt::ClassDecl(sym, stmt_methods) => {
+                let class_id = self.alloc_id();
+                self.env
+                    .define(sym.clone(), Some(Value::LoxClass(sym.clone(), class_id)));
+                let mut methods = HashMap::new();
+                for method in stmt_methods.iter() {
+                    let func_id = self.alloc_id();
+                    methods.insert(method.name.name.clone(), func_id);
+                    let lox_function = LoxFunction {
+                        name: method.name.clone(),
+                        parameters: method.params.clone(),
+                        body: method.body.clone(),
+                        closure: self.env.clone(),
+                    };
+
+                    self.lox_functions.insert(func_id, lox_function);
+                }
+
+                let cls = LoxClass {
+                    name: sym.clone(),
+                    id: class_id,
+                    methods: methods,
+                };
+
+                self.lox_classes.insert(class_id, cls);
                 Ok(())
             }
             expr::Stmt::FuncDecl(expr::FuncDecl {
@@ -427,7 +481,7 @@ impl Interpreter {
             expr::Expr::Unary(op, e) => self.interpret_unary(*op, e),
             expr::Expr::Binary(lhs, op, rhs) => self.interpret_binary(lhs, *op, rhs),
             expr::Expr::Call(callee, loc, args) => self.call(callee, loc, args),
-            expr::Expr::Get(lhs, attr) => self.getattr(lhs, attr),
+            expr::Expr::Get(lhs, attr) => self.getattr(lhs, &attr.name),
             expr::Expr::Set(lhs, attr, rhs) => self.setattr(lhs, attr, rhs),
             expr::Expr::Grouping(e) => self.interpret_expr(e),
             expr::Expr::Variable(sym) => match self.env.get(sym) {
@@ -461,11 +515,11 @@ impl Interpreter {
         }
     }
 
-    fn getattr(&mut self, lhs: &expr::Expr, attr: &expr::Symbol) -> Result<Value, String> {
+    fn getattr(&mut self, lhs: &expr::Expr, attr: &str) -> Result<Value, String> {
         let val = self.interpret_expr(lhs)?;
         match val {
             Value::LoxInstance(_, id) => match self.lox_instances.get(&id) {
-                Some(inst) => inst.getattr(&attr),
+                Some(inst) => inst.getattr(attr.to_string(), &self),
                 None => panic!(
                     "Internal interpreter error: could not find an instance with id {}.",
                     id
@@ -646,7 +700,7 @@ impl Interpreter {
                     "invalid application of unary op {:?} to obkect of type LoxFunction at line = {}, col = {}",
                     op.ty, op.line, op.col
             )),
-            (_, Value::LoxClass(_)) => Err(format!(
+            (_, Value::LoxClass(_, _)) => Err(format!(
                     "invalid application of unary op {:?} to object of type LoxClass at line = {}, col = {}",
                     op.ty, op.line, op.col
             )),
@@ -693,7 +747,7 @@ impl fmt::Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::NativeFunction(func) => write!(f, "NativeFunction({})", func.name),
             Value::LoxFunction(sym, _) => write!(f, "LoxFunction({})", sym.name),
-            Value::LoxClass(cls) => write!(f, "LoxClass({})", cls.name.name),
+            Value::LoxClass(cls, _) => write!(f, "LoxClass({})", cls.name),
             Value::LoxInstance(sym, _) => write!(f, "LoxInstance({})", sym.name),
         }
     }
