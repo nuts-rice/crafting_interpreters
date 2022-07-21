@@ -5,8 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::expr;
 use std::fmt;
 
+static INIT: &str = "init";
+
 trait Callable {
-    fn arity(&self) -> u8;
+    fn arity(&self, interpreter: &Interpreter) -> u8;
     fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String>;
 }
 
@@ -23,7 +25,7 @@ impl fmt::Debug for NativeFunction {
 }
 
 impl Callable for NativeFunction {
-    fn arity(&self) -> u8 {
+    fn arity(&self, _interpreter: &Interpreter) -> u8 {
         self.arity
     }
 
@@ -39,10 +41,11 @@ pub struct LoxFunction {
     pub body: Vec<expr::Stmt>,
     pub closure: Enviroment,
     pub this_binding: Option<Box<Value>>,
+    pub is_initializer: bool,
 }
 
 impl Callable for LoxFunction {
-    fn arity(&self) -> u8 {
+    fn arity(&self, _interpreter: &Interpreter) -> u8 {
         self.parameters.len().try_into().unwrap()
     }
 
@@ -69,12 +72,12 @@ impl Callable for LoxFunction {
 
         let mut env = self.closure.clone();
         env.venv.extend(args_env);
-        if let Some(val) = &self.this_binding {
+        if let Some(this_val) = &self.this_binding {
             let this_symbol = Interpreter::this_symbol();
             env.venv.insert(
                 this_symbol.name,
                 (
-                    Some(*val.clone()),
+                    Some(*this_val.clone()),
                     SourceLocation {
                         line: this_symbol.line,
                         col: this_symbol.col,
@@ -91,7 +94,18 @@ impl Callable for LoxFunction {
         let retval = interpreter.retval.clone();
         Ok(match retval {
             Some(val) => val,
-            None => Value::Nil,
+            None => {
+                if self.is_initializer {
+                    match &self.this_binding {
+                        Some(this_val) => *this_val.clone(),
+                        None => {
+                            panic!("Internal interpreter error: COuld not find binding for this.")
+                        }
+                    }
+                } else {
+                    Value::Nil
+                }
+            }
         })
     }
 }
@@ -104,11 +118,36 @@ pub struct LoxClass {
 }
 
 impl Callable for LoxClass {
-    fn arity(&self) -> u8 {
-        0
+    fn arity(&self, interpreter: &Interpreter) -> u8 {
+        match self.init(interpreter) {
+            Some(initializer) => initializer.parameters.len().try_into().unwrap(),
+            None => 0,
+        }
     }
-    fn call(&self, interpreter: &mut Interpreter, _args: &[Value]) -> Result<Value, String> {
-        Ok(interpreter.create_instance(&self.name, self.id))
+    fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String> {
+        let instance = interpreter.create_instance(&self.name, self.id);
+
+        if let Some(mut initializer) = self.init(&interpreter) {
+            initializer.this_binding = Some(Box::new(instance.clone()));
+            initializer.call(interpreter, args)?;
+        }
+
+        Ok(instance)
+    }
+}
+
+impl LoxClass {
+    fn init(&self, interpreter: &Interpreter) -> Option<LoxFunction> {
+        match self.methods.get(&String::from("init")) {
+            Some(initializer_id) => match interpreter.lox_functions.get(initializer_id) {
+                Some(initializer) => Some(initializer.clone()),
+                None => panic!(
+                    "Internal interpreter error! Couldn't find an initializer method with id {}.",
+                    initializer_id
+                ),
+            },
+            None => None,
+        }
     }
 }
 
@@ -407,12 +446,14 @@ impl Interpreter {
                 for method in stmt_methods.iter() {
                     let func_id = self.alloc_id();
                     methods.insert(method.name.name.clone(), func_id);
+                    let is_initializer = method.name.name == INIT;
                     let lox_function = LoxFunction {
                         name: method.name.clone(),
                         parameters: method.params.clone(),
                         body: method.body.clone(),
                         closure: self.env.clone(),
                         this_binding: None,
+                        is_initializer,
                     };
 
                     self.lox_functions.insert(func_id, lox_function);
@@ -437,13 +478,14 @@ impl Interpreter {
                     name.clone(),
                     Some(Value::LoxFunction(name.clone(), func_id, None)),
                 );
-                println!("defined {} with id {}.", name.name, func_id);
+
                 let lox_function = LoxFunction {
                     name: name.clone(),
                     parameters: parameters.clone(),
                     body: body.clone(),
                     closure: self.env.clone(),
                     this_binding: None,
+                    is_initializer: false,
                 };
                 self.lox_functions.insert(func_id, lox_function);
                 Ok(())
@@ -600,11 +642,11 @@ impl Interpreter {
     }
 
     fn this_symbol() -> expr::Symbol {
-        return expr::Symbol {
+        expr::Symbol {
             name: String::from("this"),
             line: 0,
             col: -1,
-        };
+        }
     }
 
     fn call(
@@ -623,11 +665,11 @@ impl Interpreter {
 
                 match maybe_args {
                     Ok(args) => {
-                        if args.len() != callable.arity().into() {
+                        if args.len() != callable.arity(self).into() {
                             Err(format!("Invalid call at line={}, col={}: callee has arity {}, was called with {} arguments",
                                     loc.line,
                                     loc.col,
-                                    callable.arity(),
+                                    callable.arity(self),
                                     args.len()
                                 ))
                         } else {
