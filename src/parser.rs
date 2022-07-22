@@ -48,7 +48,8 @@ pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
 //              |funcDecl
 //              | varDecl
 //              | stamement;
-//classDecl -> "class" IDENTIFIER "{" function* "}" ;
+//classDecl -> "class" IDENTIFIER ( "<"  IDENTIFIER )?
+//                  "{" function* "}";
 //funcDecl -> "func" function;
 //function -> IDENTIFIER "(" parameters? ")" block;
 //parameters -> IDENTIFIER ( "," IDENTIFIER )* ;
@@ -120,6 +121,17 @@ impl Parser {
             line: name_tok.line,
             col: name_tok.col,
         };
+        let superclass_maybe = if self.matches(scanner::TokenType::Less) {
+            let superclass_tok =
+                self.consume(scanner::TokenType::Identifier, "Expected class name.")?;
+            Some(expr::Symbol {
+                name: String::from_utf8(superclass_tok.lexeme.clone()).unwrap(),
+                line: superclass_tok.line,
+                col: superclass_tok.col,
+            })
+        } else {
+            None
+        };
 
         self.consume(scanner::TokenType::LeftBrace, "Expected ( after class name")?;
 
@@ -135,7 +147,11 @@ impl Parser {
             "Expected } after class body",
         )?;
 
-        Ok(expr::Stmt::ClassDecl(class_symbol, methods))
+        Ok(expr::Stmt::ClassDecl(
+            class_symbol,
+            superclass_maybe,
+            methods,
+        ))
     }
 
     fn func_decl(&mut self, kind: &str) -> Result<expr::FuncDecl, String> {
@@ -273,10 +289,12 @@ impl Parser {
             None
         };
 
-        self.consume(
-            scanner::TokenType::Semicolon,
-            "Expected ; after return value",
-        )?;
+        if let Some(_) = maybe_retval {
+            self.consume(
+                scanner::TokenType::Semicolon,
+                "Expected ; after return value",
+            )?;
+        }
 
         Ok(expr::Stmt::Return(
             expr::SourceLocation {

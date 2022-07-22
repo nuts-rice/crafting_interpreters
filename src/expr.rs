@@ -49,7 +49,7 @@ pub enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     FuncDecl(FuncDecl),
-    ClassDecl(Symbol, Vec<FuncDecl>),
+    ClassDecl(Symbol, Option<Symbol>, Vec<FuncDecl>), //superclass
     Return(SourceLocation, Option<Expr>),
 }
 
