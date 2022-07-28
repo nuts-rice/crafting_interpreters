@@ -1,6 +1,9 @@
+extern crate clap;
+use clap::{App, Arg};
 use std::env;
 use std::fs;
 
+mod bytecode_interp;
 mod expr;
 mod interpreter;
 mod parser;
