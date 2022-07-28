@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Copy, Clone)]
-pub enum Value {
-    Number(f64),
+fn negate(val: value::Value) -> Value {
+    match val {
+        Value::Number(num) => Value::Number(-num),
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
