@@ -1,13 +1,15 @@
 extern crate clap;
-use clap::{App, Arg};
+
 use std::env;
 use std::fs;
 
+mod bytecode;
 mod bytecode_interp;
 mod expr;
 mod interpreter;
 mod parser;
 mod scanner;
+mod value;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

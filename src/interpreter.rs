@@ -140,7 +140,7 @@ impl Callable for LoxClass {
     fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, String> {
         let instance = interpreter.create_instance(&self.name, self.id);
 
-        if let Some(mut initializer) = self.init(&interpreter) {
+        if let Some(mut initializer) = self.init(interpreter) {
             initializer.this_binding = Some(Box::new(instance.clone()));
             initializer.call(interpreter, args)?;
         }
@@ -205,7 +205,7 @@ impl LoxInstance {
                 if let Some(cls) = interpreter.lox_classes.get(&self.class_id) {
                     if let Some((func_name, method_id)) = cls.find_method(attr, interpreter) {
                         return Ok(Value::LoxFunction(
-                            func_name.clone(),
+                            func_name,
                             method_id,
                             Some(Box::new(Value::LoxInstance(
                                 self.class_name.clone(),
@@ -254,7 +254,7 @@ fn as_callable(interpreter: &Interpreter, value: &Value) -> Option<Box<dyn Calla
                 id
             ),
         },
-        Value::LoxClass(cls, id) => match interpreter.lox_classes.get(id) {
+        Value::LoxClass(_cls, id) => match interpreter.lox_classes.get(id) {
             Some(cls) => Some(Box::new(cls.clone())),
             None => panic!(
                 "Internal interpreter error! Could not find loxclass with id {}.",
@@ -340,7 +340,7 @@ impl Enviroment {
     pub fn lookup(&self, sym: &expr::Symbol) -> LookupResult {
         match self.venv.get(&sym.name) {
             Some((maybe_val, defn_source_location)) => match maybe_val {
-                Some(val) => LookupResult::Ok(&val),
+                Some(val) => LookupResult::Ok(val),
                 None => LookupResult::UndefButDeclared(SourceLocation {
                     line: defn_source_location.line,
                     col: defn_source_location.col,
@@ -351,8 +351,8 @@ impl Enviroment {
     }
 
     pub fn get(&self, sym: &expr::Symbol) -> Result<&Value, String> {
-        match self.lookup(&sym) {
-            LookupResult::Ok(val) => Ok(&val),
+        match self.lookup(sym) {
+            LookupResult::Ok(val) => Ok(val),
             LookupResult::UndefButDeclared(source_location) => Err(format!(
                 "Use of undefined variable {} at line={}, col={}.\
                     {} was previously declared at line={}, col={}, \
@@ -545,10 +545,10 @@ impl Interpreter {
             }
             expr::Stmt::If(cond, if_true, maybe_if_false) => {
                 if Interpreter::is_truthy(&self.interpret_expr(cond)?) {
-                    return Ok(self.execute(if_true)?);
+                    return self.execute(if_true);
                 }
                 if let Some(if_false) = maybe_if_false {
-                    return Ok(self.execute(if_false)?);
+                    return self.execute(if_false);
                 }
                 Ok(())
             }
@@ -655,7 +655,7 @@ impl Interpreter {
         let val = self.interpret_expr(lhs)?;
         match val {
             Value::LoxInstance(_, id) => match self.lox_instances.get(&id) {
-                Some(inst) => inst.getattr(&attr, &self),
+                Some(inst) => inst.getattr(attr, self),
                 None => panic!(
                     "Internal interpreter error: could not find an instance with id {}.",
                     id
@@ -709,7 +709,7 @@ impl Interpreter {
         arg_exprs: &[expr::Expr],
     ) -> Result<Value, String> {
         let callee = self.interpret_expr(callee_expr)?;
-        match as_callable(&self, &callee) {
+        match as_callable(self, &callee) {
             Some(callable) => {
                 let maybe_args: Result<Vec<_>, _> = arg_exprs
                     .iter()
@@ -744,12 +744,10 @@ impl Interpreter {
         loc: &expr::SourceLocation,
         _args: Vec<Value>,
     ) -> Result<Value, String> {
-        match callee {
-            _ => Err(format!(
-                "Value {:?} not callable at line={}, col={}",
-                callee, loc.line, loc.col
-            )),
-        }
+        Err(format!(
+            "Value {:?} not callable at line={}, col={}",
+            callee, loc.line, loc.col
+        ))
     }
 
     fn interpret_binary(
@@ -848,7 +846,7 @@ impl Interpreter {
                     "invalid application of unary op {:?} to object of type LoxClass at line = {}, col = {}",
                     op.ty, op.line, op.col
             )),
-            (_, Value::LoxInstance(class_name, inst)) => Err(format!(
+            (_, Value::LoxInstance(class_name, _inst)) => Err(format!(
                     "Invalid application of unary op {:?} to object of type {:?} at line={}, col={}",
                     class_name.name, op.ty, op.line, op.col
             )),
@@ -915,7 +913,7 @@ mod tests {
             if n <= 1 {
                 return 1;
             }
-            return n * fact(n - 1);
+            n * fact(n - 1)
         };
 
         let result = evaluate(

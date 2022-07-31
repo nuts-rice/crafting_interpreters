@@ -3,7 +3,7 @@ use crate::value;
 
 #[allow(dead_code)]
 pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
-    println("== {} ==", name);
+    println!("== {} ==", name);
     for (idx, (op, lineno)) in chunk.code.iter().enumerate() {
         print!("{:04} ", idx);
         match op {

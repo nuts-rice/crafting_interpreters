@@ -785,7 +785,7 @@ impl Parser {
     }
 
     fn match_one_of(&mut self, types: Vec<scanner::TokenType>) -> bool {
-        for ty in types.iter() {
+        for ty in &types {
             if self.matches(*ty) {
                 return true;
             }

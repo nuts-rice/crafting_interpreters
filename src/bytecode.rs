@@ -24,8 +24,8 @@ pub fn Lineno(value: usize) -> Lineno {
 
 #[derive(Default)]
 pub struct Chunk {
-    code: Vec<(Op, Lineno)>,
-    constants: Vec<value::Value>,
+    pub code: Vec<(Op, Lineno)>,
+    pub constants: Vec<value::Value>,
 }
 
 impl Chunk {
