@@ -145,3 +145,16 @@ impl Interpreter {
         }
     }
 }
+
+//walk through these with rust gdb
+#[cfg(test)]
+mod tests {
+    use crate::bytecode_interp::*;
+    use crate::compiler::*;
+
+    #[test]
+    fn compiler_test_1() {
+        let code_or_err = Compiler::default().compile(String::from("(-1 + 2) + 3 - -4"));
+        assert!(code_or_err.is_ok())
+    }
+}

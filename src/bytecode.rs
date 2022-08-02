@@ -13,7 +13,7 @@ pub enum Op {
     Divide,
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 pub struct Lineno {
     pub value: usize,
 }
