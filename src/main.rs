@@ -5,6 +5,7 @@ use std::fs;
 
 mod bytecode;
 mod bytecode_interp;
+mod compiler;
 mod expr;
 mod interpreter;
 mod parser;

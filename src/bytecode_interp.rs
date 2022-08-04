@@ -149,8 +149,8 @@ impl Interpreter {
 //walk through these with rust gdb
 #[cfg(test)]
 mod tests {
-    use crate::bytecode_interp::*;
-    use crate::compiler::*;
+
+    use crate::compiler::Compiler;
 
     #[test]
     fn compiler_test_1() {
