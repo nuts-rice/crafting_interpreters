@@ -11,6 +11,9 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Constant(const_idx) => {
                 print!("OP_CONSTANT {:?}", chunk.constants[*const_idx])
             }
+            bytecode::Op::Nil => print!("OP_NIL"),
+            bytecode::Op::True => print!("OP_TRUE"),
+            bytecode::Op::False => print!("OP_FALSE"),
             bytecode::Op::Negate => print!("OP_NEGATE"),
             bytecode::Op::Add => print!("OP_ADD"),
             bytecode::Op::Subtract => print!("OP_SUBTRACT"),
@@ -39,6 +42,13 @@ impl Default for Interpreter {
     }
 }
 
+enum Binop {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 #[allow(dead_code)]
 pub enum InterpreterError {
@@ -62,31 +72,94 @@ impl Interpreter {
                     let constant = self.read_constant(idx);
                     self.stack.push(constant);
                 }
-                (bytecode::Op::Negate, _) => {
-                    let to_negate = self.pop_stack();
-                    self.stack.push(Interpreter::negate(to_negate)?)
+                (bytecode::Op::Nil, _) => {
+                    self.stack.push(value::Value::Nil);
                 }
-                (bytecode::Op::Add, _) => {
-                    let left = self.pop_stack();
-                    let right = self.pop_stack();
-                    self.stack.push(Interpreter::add(left, right)?)
+                (bytecode::Op::True, _) => {
+                    self.stack.push(value::Value::Bool(true));
                 }
-                (bytecode::Op::Subtract, _) => {
-                    let left = self.pop_stack();
-                    let right = self.pop_stack();
-                    self.stack.push(Interpreter::subtract(left, right)?)
+                (bytecode::Op::False, _) => {
+                    self.stack.push(value::Value::Bool(false));
                 }
-                (bytecode::Op::Multiply, _) => {
-                    let left = self.pop_stack();
-                    let right = self.pop_stack();
-                    self.stack.push(Interpreter::multiply(left, right)?)
+                (bytecode::Op::Negate, lineno) => {
+                    let top_stack = self.peek();
+                    let maybe_number = Interpreter::as_number(top_stack);
+
+                    match maybe_number {
+                        Some(to_negate) => {
+                            self.pop_stack();
+                            self.stack.push(value::Value::Number(-to_negate));
+                        }
+                        None => {
+                            return Err(InterpreterError::Runtime(format!(
+                                        "Invalid operand to unary op negate. Expected number, found {:?} at line {}",
+                                        value::type_of(top_stack), lineno.value
+                                        )))
+
+                        }
+                    }
                 }
-                (bytecode::Op::Divide, _) => {
-                    let left = self.pop_stack();
-                    let right = self.pop_stack();
-                    self.stack.push(Interpreter::divide(left, right)?)
+                (bytecode::Op::Add, lineno) => match self.numeric_binop(Binop::Add, lineno) {
+                    Ok(()) => {}
+                    Err(err) => return Err(err),
+                },
+                (bytecode::Op::Subtract, lineno) => match self.numeric_binop(Binop::Sub, lineno) {
+                    Ok(()) => {}
+                    Err(err) => return Err(err),
+                },
+                (bytecode::Op::Multiply, lineno) => match self.numeric_binop(Binop::Mul, lineno) {
+                    Ok(()) => {}
+                    Err(err) => return Err(err),
+                },
+                (bytecode::Op::Divide, lineno) => match self.numeric_binop(Binop::Div, lineno) {
+                    Ok(()) => {}
+                    Err(err) => return Err(err),
+                },
+            }
+        }
+    }
+
+    fn numeric_binop(
+        &mut self,
+        binop: Binop,
+        lineno: bytecode::Lineno,
+    ) -> Result<(), InterpreterError> {
+        let top_stack = self.peek();
+        let maybe_left = Interpreter::as_number(top_stack);
+        match maybe_left {
+            Some(left) => {
+                let top_stack = self.peek();
+                let maybe_right = Interpreter::as_number(top_stack);
+                match maybe_right {
+                    Some(right) => {
+                        self.pop_stack();
+                        self.stack
+                            .push(value::Value::Number(Interpreter::apply_numeric_binop(
+                                left, right, binop,
+                            )));
+                        Ok(())
+                    }
+                    None => Err(InterpreterError::Runtime(format!(
+                        "invalid operand of type {:?} at line {}",
+                        value::type_of(top_stack),
+                        lineno.value
+                    ))),
                 }
             }
+            None => Err(InterpreterError::Runtime(format!(
+                "Invalid operand of type {:?} at line {}",
+                value::type_of(top_stack),
+                lineno.value
+            ))),
+        }
+    }
+
+    fn apply_numeric_binop(left: f64, right: f64, binop: Binop) -> f64 {
+        match binop {
+            Binop::Add => left + right,
+            Binop::Sub => left - right,
+            Binop::Mul => left * right,
+            Binop::Div => left / right,
         }
     }
 
@@ -103,45 +176,21 @@ impl Interpreter {
         res
     }
 
+    fn peek(&self) -> value::Value {
+        match self.stack.last() {
+            Some(val) => *val,
+            None => panic!("attempted to peek empty stack"),
+        }
+    }
+
     fn read_constant(&self, idx: usize) -> value::Value {
         self.chunk.constants[idx]
     }
 
-    fn negate(val: value::Value) -> Result<value::Value, InterpreterError> {
+    fn as_number(val: value::Value) -> Option<f64> {
         match val {
-            value::Value::Number(num) => Ok(value::Value::Number(-num)),
-        }
-    }
-
-    fn add(val1: value::Value, val2: value::Value) -> Result<value::Value, InterpreterError> {
-        match (val1, val2) {
-            (value::Value::Number(num1), value::Value::Number(num2)) => {
-                Ok(value::Value::Number(num1 + num2))
-            }
-        }
-    }
-
-    fn subtract(val1: value::Value, val2: value::Value) -> Result<value::Value, InterpreterError> {
-        match (val1, val2) {
-            (value::Value::Number(num1), value::Value::Number(num2)) => {
-                Ok(value::Value::Number(num1 - num2))
-            }
-        }
-    }
-
-    fn multiply(val1: value::Value, val2: value::Value) -> Result<value::Value, InterpreterError> {
-        match (val1, val2) {
-            (value::Value::Number(num1), value::Value::Number(num2)) => {
-                Ok(value::Value::Number(num1 * num2))
-            }
-        }
-    }
-
-    fn divide(val1: value::Value, val2: value::Value) -> Result<value::Value, InterpreterError> {
-        match (val1, val2) {
-            (value::Value::Number(num1), value::Value::Number(num2)) => {
-                Ok(value::Value::Number(num1 / num2))
-            }
+            value::Value::Number(f) => Some(f),
+            _ => None,
         }
     }
 }

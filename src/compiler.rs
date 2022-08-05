@@ -30,6 +30,7 @@ enum ParseFn {
     Unary,
     Binary,
     Number,
+    Literal,
 }
 
 //Given a token type gives
@@ -75,13 +76,34 @@ impl Compiler {
         let tok = self.previous().clone();
         match tok.literal {
             Some(scanner::Literal::Number(n)) => {
-                self.emit_constant(n, tok.line);
+                self.emit_number(n, tok.line);
                 Ok(())
             }
             _ => panic!(
                 "Expected number at line ={}, col = {}. Current token {:?}",
                 tok.line, tok.col, tok
             ),
+        }
+    }
+
+    fn literal(&mut self) -> Result<(), String> {
+        let tok = self.previous().clone();
+        match tok.ty {
+            scanner::TokenType::Nil => {
+                self.emit_op(bytecode::Op::Nil, tok.line);
+                Ok(())
+            }
+            scanner::TokenType::True => {
+                self.emit_op(bytecode::Op::True, tok.line);
+                Ok(())
+            }
+            scanner::TokenType::False => {
+                self.emit_op(bytecode::Op::False, tok.line);
+                Ok(())
+            }
+            _ => {
+                panic!("shouldn't get in literal with tok = {:?}.", tok);
+            }
         }
     }
     //table colum for infix parse used here
@@ -130,7 +152,7 @@ impl Compiler {
         }
     }
 
-    fn emit_constant(&mut self, n: f64, lineno: usize) {
+    fn emit_number(&mut self, n: f64, lineno: usize) {
         let const_idx = self.current_chunk.add_constant(n);
         self.emit_op(bytecode::Op::Constant(const_idx), lineno);
     }
@@ -186,6 +208,7 @@ impl Compiler {
             ParseFn::Unary => self.unary(),
             ParseFn::Binary => self.binary(),
             ParseFn::Number => self.number(),
+            ParseFn::Literal => self.literal(),
         }
     }
 
@@ -368,7 +391,7 @@ impl Compiler {
                 precendence: Precedence::None,
             },
             scanner::TokenType::False => ParseRule {
-                prefix: None,
+                prefix: Some(ParseFn::Literal),
                 infix: None,
                 precendence: Precedence::None,
             },
@@ -388,7 +411,7 @@ impl Compiler {
                 precendence: Precedence::None,
             },
             scanner::TokenType::Nil => ParseRule {
-                prefix: None,
+                prefix: Some(ParseFn::Literal),
                 infix: None,
                 precendence: Precedence::None,
             },
@@ -419,7 +442,7 @@ impl Compiler {
                 precendence: Precedence::None,
             },
             scanner::TokenType::True => ParseRule {
-                prefix: None,
+                prefix: Some(ParseFn::Literal),
                 infix: None,
                 precendence: Precedence::None,
             },

@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 pub enum Op {
     Return,
     Constant(usize),
+    Nil,
+    True,
+    False,
     Negate,
     Add,
     Subtract,
