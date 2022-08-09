@@ -19,6 +19,7 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Subtract => print!("OP_SUBTRACT"),
             bytecode::Op::Multiply => print!("OP_MULTIPLY"),
             bytecode::Op::Divide => print!("OP_DIVIDE"),
+            bytecode::Op::Not => print!("OP_NOT"),
         }
         println!("\t\tline {}", lineno.value);
     }
@@ -115,6 +116,23 @@ impl Interpreter {
                     Ok(()) => {}
                     Err(err) => return Err(err),
                 },
+                (bytecode::Op::Not, lineno) => {
+                    let top_stack = self.peek();
+                    let maybe_bool = Interpreter::as_bool(top_stack);
+                    match maybe_bool {
+                        Some(b) => {
+                            self.pop_stack();
+                            self.stack.push(value::Value::Bool(!b));
+                        }
+                        None => {
+                            return Err(InterpreterError::Runtime(format!(
+                                "Expected operand boolean, found {:?} at line {}",
+                                value::type_of(top_stack),
+                                lineno.value
+                            )))
+                        }
+                    }
+                }
             }
         }
     }
@@ -185,6 +203,13 @@ impl Interpreter {
 
     fn read_constant(&self, idx: usize) -> value::Value {
         self.chunk.constants[idx]
+    }
+
+    fn as_bool(val: value::Value) -> Option<bool> {
+        match val {
+            value::Value::Bool(b) => Some(b),
+            _ => None,
+        }
     }
 
     fn as_number(val: value::Value) -> Option<f64> {

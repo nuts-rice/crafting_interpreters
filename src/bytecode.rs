@@ -14,6 +14,7 @@ pub enum Op {
     Subtract,
     Multiply,
     Divide,
+    Not,
 }
 
 #[derive(Default, Copy, Clone, Debug)]
