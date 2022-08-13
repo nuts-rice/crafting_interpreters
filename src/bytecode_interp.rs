@@ -46,6 +46,7 @@ impl Default for Interpreter {
     }
 }
 
+#[allow(dead_code)]
 enum Binop {
     Add,
     Sub,
@@ -73,7 +74,7 @@ impl Interpreter {
                     return Ok(());
                 }
                 (bytecode::Op::Constant(idx), _) => {
-                    let constant = self.read_constant(idx);
+                    let constant = self.read_constant(idx).clone();
                     self.stack.push(constant);
                 }
                 (bytecode::Op::Nil, _) => {
@@ -87,7 +88,7 @@ impl Interpreter {
                 }
                 (bytecode::Op::Negate, lineno) => {
                     let top_stack = self.peek();
-                    let maybe_number = Interpreter::as_number(top_stack);
+                    let maybe_number = Interpreter::extract_number(top_stack);
 
                     match maybe_number {
                         Some(to_negate) => {
@@ -103,10 +104,32 @@ impl Interpreter {
                         }
                     }
                 }
-                (bytecode::Op::Add, lineno) => match self.numeric_binop(Binop::Add, lineno) {
-                    Ok(()) => {}
-                    Err(err) => return Err(err),
-                },
+                (bytecode::Op::Add, lineno) => {
+                    let val1 = self.peek_by(0).clone();
+                    let val2 = self.peek_by(1).clone();
+                    match (&val1, &val2) {
+                        (value::Value::Number(n1), value::Value::Number(n2)) => {
+                            self.pop_stack();
+                            self.pop_stack();
+                            self.stack.push(value::Value::Number(n1 + n2));
+                        }
+                        (value::Value::String(s1), value::Value::String(s2)) => {
+                            self.pop_stack();
+                            self.pop_stack();
+                            self.stack
+                                .push(value::Value::String(format!("{}{}", s1, s2)));
+                        }
+                        _ => {
+                            return Err(InterpreterError::Runtime(format!(
+                                "Invalid operands of type {:?} and {:?} in add expression \
+                                        both operands must be number or string (line={})",
+                                value::type_of(&val1),
+                                value::type_of(&val2),
+                                lineno.value
+                            )))
+                        }
+                    }
+                }
                 (bytecode::Op::Subtract, lineno) => match self.numeric_binop(Binop::Sub, lineno) {
                     Ok(()) => {}
                     Err(err) => return Err(err),
@@ -121,7 +144,7 @@ impl Interpreter {
                 },
                 (bytecode::Op::Not, lineno) => {
                     let top_stack = self.peek();
-                    let maybe_bool = Interpreter::as_bool(top_stack);
+                    let maybe_bool = Interpreter::extract_bool(top_stack);
                     match maybe_bool {
                         Some(b) => {
                             self.pop_stack();
@@ -140,12 +163,12 @@ impl Interpreter {
                     let val1 = self.pop_stack();
                     let val2 = self.pop_stack();
                     self.stack
-                        .push(value::Value::Bool(Interpreter::values_equal(val1, val2)));
+                        .push(value::Value::Bool(Interpreter::values_equal(&val1, &val2)));
                 }
                 (bytecode::Op::Greater, lineno) => {
-                    let val1 = self.peek_by(0);
-                    let val2 = self.peek_by(1);
-                    match (val1, val2) {
+                    let val1 = self.peek_by(0).clone();
+                    let val2 = self.peek_by(1).clone();
+                    match (&val1, &val2) {
                         (value::Value::Number(n1), value::Value::Number(n2)) => {
                             self.pop_stack();
                             self.pop_stack();
@@ -154,17 +177,17 @@ impl Interpreter {
                         _ => {
                             return Err(InterpreterError::Runtime(format!(
                                 "Expected numbers, found {:?} and {:?} at line {}",
-                                value::type_of(val1),
-                                value::type_of(val2),
+                                value::type_of(&val1),
+                                value::type_of(&val2),
                                 lineno.value
                             )))
                         }
                     }
                 }
                 (bytecode::Op::Less, lineno) => {
-                    let val1 = self.peek_by(0);
-                    let val2 = self.peek_by(1);
-                    match (val1, val2) {
+                    let val1 = self.peek_by(0).clone();
+                    let val2 = self.peek_by(1).clone();
+                    match (&val1, &val2) {
                         (value::Value::Number(n1), value::Value::Number(n2)) => {
                             self.pop_stack();
                             self.pop_stack();
@@ -173,8 +196,8 @@ impl Interpreter {
                         _ => {
                             return Err(InterpreterError::Runtime(format!(
                                 "Expected numbers, found {:?} and {:?} at line {}",
-                                value::type_of(val1),
-                                value::type_of(val2),
+                                value::type_of(&val1),
+                                value::type_of(&val2),
                                 lineno.value
                             )))
                         }
@@ -184,10 +207,11 @@ impl Interpreter {
         }
     }
 
-    fn values_equal(val1: value::Value, val2: value::Value) -> bool {
+    fn values_equal(val1: &value::Value, val2: &value::Value) -> bool {
         match (val1, val2) {
             (value::Value::Number(n1), value::Value::Number(n2)) => (n1 - n2).abs() < f64::EPSILON,
             (value::Value::Bool(b1), value::Value::Bool(b2)) => b1 == b2,
+            (value::Value::String(s1), value::Value::String(s2)) => s1 == s2,
             (value::Value::Nil, value::Value::Nil) => true,
             (_, _) => false,
         }
@@ -199,11 +223,11 @@ impl Interpreter {
         lineno: bytecode::Lineno,
     ) -> Result<(), InterpreterError> {
         let top_stack = self.peek();
-        let maybe_left = Interpreter::as_number(top_stack);
+        let maybe_left = Interpreter::extract_number(top_stack);
         match maybe_left {
             Some(left) => {
                 let top_stack = self.peek();
-                let maybe_right = Interpreter::as_number(top_stack);
+                let maybe_right = Interpreter::extract_number(top_stack);
                 match maybe_right {
                     Some(right) => {
                         self.pop_stack();
@@ -250,28 +274,28 @@ impl Interpreter {
         res
     }
 
-    fn peek(&self) -> value::Value {
+    fn peek(&self) -> &value::Value {
         self.peek_by(0)
     }
 
-    fn peek_by(&self, n: usize) -> value::Value {
-        self.stack[self.stack.len() - n - 1]
+    fn peek_by(&self, n: usize) -> &value::Value {
+        &self.stack[self.stack.len() - n - 1]
     }
 
-    fn read_constant(&self, idx: usize) -> value::Value {
-        self.chunk.constants[idx]
+    fn read_constant(&self, idx: usize) -> &value::Value {
+        &self.chunk.constants[idx]
     }
 
-    fn as_bool(val: value::Value) -> Option<bool> {
+    fn extract_bool(val: &value::Value) -> Option<bool> {
         match val {
-            value::Value::Bool(b) => Some(b),
+            value::Value::Bool(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn as_number(val: value::Value) -> Option<f64> {
+    fn extract_number(val: &value::Value) -> Option<f64> {
         match val {
-            value::Value::Number(f) => Some(f),
+            value::Value::Number(f) => Some(*f),
             _ => None,
         }
     }
