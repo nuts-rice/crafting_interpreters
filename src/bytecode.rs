@@ -18,6 +18,8 @@ pub enum Op {
     Equal,
     Greater,
     Less,
+    Print,
+    Pop,
 }
 
 #[derive(Default, Copy, Clone, Debug)]

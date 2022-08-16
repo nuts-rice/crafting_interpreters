@@ -906,31 +906,31 @@ mod tests {
         let stmts = parser::parse(tokens)?;
         interpreter::interpret(&stmts)
     }
-
-    #[test]
-    fn test_fact() {
-        fn fact(n: i32) -> i32 {
-            if n <= 1 {
-                return 1;
+    /*
+        #[test]
+        fn test_fact() {
+            fn fact(n: i32) -> i32 {
+                if n <= 1 {
+                    return 1;
+                }
+                n * fact(n - 1)
             }
-            n * fact(n - 1)
-        };
 
-        let result = evaluate(
-            "fun fact(n) { \n\
-                if (n <= 1) { \n\
-                    return 1; \n\
-                }\n\
-                return n * fact(n - 1); \n\
-            } \n\
-            print fact(10); ",
-        );
-        match result {
-            Ok(output) => assert_eq!(output, format!("{}", fact(10))),
-            Err(err) => panic!("{}", err),
-        }
-    }
-
+            let result = evaluate(
+                "fun fact(n) { \n\
+                    if (n <= 1) { \n\
+                        return 1; \n\
+                    }\n\
+                    return n * fact(n - 1); \n\
+                } \n\
+                print fact(10); ",
+            );
+            match result {
+                Ok(output) => assert_eq!(output, format!("{}", fact(10))),
+                Err(err) => panic!("{}", err),
+            }
+    //    }
+    */
     #[test]
     fn invalid_binary_operands_test() {
         let res = evaluate("1 + \"string\";");

@@ -23,6 +23,8 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Equal => print!("OP_EQUAL"),
             bytecode::Op::Greater => print!("OP_GREATER"),
             bytecode::Op::Less => print!("OP_LESS"),
+            bytecode::Op::Print => print!("OP_PRINT"),
+            bytecode::Op::Pop => print!("OP_POP"),
         }
         println!("\t\tline {}", lineno.value);
     }
@@ -32,6 +34,7 @@ pub struct Interpreter {
     chunk: bytecode::Chunk,
     ip: usize,
     stack: Vec<value::Value>,
+    output: Vec<String>,
 }
 
 impl Default for Interpreter {
@@ -40,6 +43,7 @@ impl Default for Interpreter {
             chunk: Default::default(),
             ip: 0,
             stack: Vec::new(),
+            output: Vec::new(),
         };
         res.stack.reserve(256);
         res
@@ -142,6 +146,13 @@ impl Interpreter {
                     Ok(()) => {}
                     Err(err) => return Err(err),
                 },
+                (bytecode::Op::Print, _) => {
+                    let to_print = self.peek().clone();
+                    self.print_val(&to_print);
+                }
+                (bytecode::Op::Pop, _) => {
+                    self.pop_stack();
+                }
                 (bytecode::Op::Not, lineno) => {
                     let top_stack = self.peek();
                     let maybe_bool = Interpreter::extract_bool(top_stack);
@@ -205,6 +216,18 @@ impl Interpreter {
                 }
             }
         }
+    }
+
+    fn print_val(&mut self, val: &value::Value) {
+        let output = match val {
+            value::Value::Number(n) => format!("{}", n),
+            value::Value::Bool(b) => format!("{}", b),
+            value::Value::String(s) => s.to_string(),
+            value::Value::Nil => "nil".to_string(),
+        };
+
+        println!("{}", output);
+        self.output.push(output);
     }
 
     fn values_equal(val1: &value::Value, val2: &value::Value) -> bool {
@@ -309,7 +332,19 @@ mod tests {
 
     #[test]
     fn compiler_test_1() {
-        let code_or_err = Compiler::default().compile(String::from("(-1 + 2) + 3 - -4"));
-        assert!(code_or_err.is_ok())
+        let code_or_err = Compiler::default().compile(String::from("print 42 * 12;"));
+        match code_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn compiler_test_2() {
+        let code_or_err = Compiler::default().compile(String::from("print -2 * 3 + (-4 / 2);"));
+        match code_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
     }
 }
