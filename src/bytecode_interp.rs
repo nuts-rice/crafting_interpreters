@@ -247,22 +247,24 @@ impl Interpreter {
         lineno: bytecode::Lineno,
     ) -> Result<(), InterpreterError> {
         let val1 = self.peek_by(0).clone();
-        let val2 = self.peek_by(1).clone(); 
+        let val2 = self.peek_by(1).clone();
         match (&val1, &val2) {
             (value::Value::Number(n1), value::Value::Number(n2)) => {
                 self.pop_stack();
                 self.pop_stack();
                 self.stack
                     .push(value::Value::Number(Interpreter::apply_numeric_binop(
-                                *n1, *n2, binop,
-                                )));
+                        *n1, *n2, binop,
+                    )));
                 Ok(())
             }
-                
-            
+
             _ => Err(InterpreterError::Runtime(format!(
                 "Expected numbers in {:?} expression. Found {:?} and {:?} (line={})",
-                binop, value::type_of(&val1), value::type_of(&val2), lineno.value
+                binop,
+                value::type_of(&val1),
+                value::type_of(&val2),
+                lineno.value
             ))),
         }
     }
