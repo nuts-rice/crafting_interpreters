@@ -1,5 +1,6 @@
 use crate::bytecode;
 use crate::value;
+use std::collections::HashMap;
 
 #[allow(dead_code)]
 pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
@@ -25,6 +26,9 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Less => print!("OP_LESS"),
             bytecode::Op::Print => print!("OP_PRINT"),
             bytecode::Op::Pop => print!("OP_POP"),
+            bytecode::Op::DefineGlobal(global_idx) => {
+                print!("OP_DEFINE_GLOBAL {:?}", chunk.constants[*global_idx])
+            }
         }
         println!("\t\tline {}", lineno.value);
     }
@@ -35,6 +39,7 @@ pub struct Interpreter {
     ip: usize,
     stack: Vec<value::Value>,
     output: Vec<String>,
+    globals: HashMap<String, value::Value>,
 }
 
 impl Default for Interpreter {
@@ -44,6 +49,7 @@ impl Default for Interpreter {
             ip: 0,
             stack: Vec::new(),
             output: Vec::new(),
+            globals: HashMap::new(),
         };
         res.stack.reserve(256);
         res
@@ -74,7 +80,11 @@ impl Interpreter {
 
     fn run(&mut self) -> Result<(), InterpreterError> {
         loop {
-            match self.next_op() {
+            if self.ip >= self.chunk.code.len() {
+                return Ok(());
+            }
+            let op = self.next_op();
+            match op {
                 (bytecode::Op::Return, _) => {
                     return Ok(());
                 }
@@ -153,6 +163,36 @@ impl Interpreter {
                 }
                 (bytecode::Op::Pop, _) => {
                     self.pop_stack();
+                }
+                (bytecode::Op::DefineGlobal(idx), _) => {
+                    if let value::Value::String(name) = self.read_constant(idx).clone() {
+                        self.globals.insert(name, self.peek().clone());
+                        self.pop_stack();
+                    } else {
+                        panic!(
+                            "expected string when defining global, found {:?}",
+                            value::type_of(self.read_constant(idx))
+                        );
+                    }
+                }
+                (bytecode::Op::GetGlobal(idx), lineno)  => {
+                    if let value::Value::String(name) = self.read_constant(idx) {
+                        match self.globals.get(name) {
+                            Some(val) => {
+                                self.stack.push(val.clone());
+
+                            }
+                            None => {
+                                return Err(InterpreterError::Runtime(format!(
+                                            "undefined variable '{}' at line {}",
+                                            name, lineno.value
+                                            )));
+                            }
+                        }
+                    } else {
+                        panic!("expected string when defining global, found {:?}",
+                               value::type_of(self.read_constant(idx)));
+                    }
                 }
                 (bytecode::Op::Not, lineno) => {
                     let top_stack = self.peek();
@@ -336,6 +376,24 @@ mod tests {
     #[test]
     fn compiler_test_2() {
         let code_or_err = Compiler::default().compile(String::from("print -2 * 3 + (-4 / 2);"));
+        match code_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn var_decl_test() {
+        let code_or_err = Compiler::default().compile(String::from("var x = 2;"));
+        match code_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn var_decl_nil() {
+        let code_or_err = Compiler::default().compile(String::from("var x;"));
         match code_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),
