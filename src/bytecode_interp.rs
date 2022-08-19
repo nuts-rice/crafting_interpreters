@@ -29,6 +29,9 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::DefineGlobal(global_idx) => {
                 print!("OP_DEFINE_GLOBAL {:?}", chunk.constants[*global_idx])
             }
+            bytecode::Op::GetGlobal(global_idx) => {
+                print!("OP_GET_GLOBAL {:?}", chunk.constants[*global_idx])
+            }
         }
         println!("\t\tline {}", lineno.value);
     }
@@ -175,23 +178,24 @@ impl Interpreter {
                         );
                     }
                 }
-                (bytecode::Op::GetGlobal(idx), lineno)  => {
+                (bytecode::Op::GetGlobal(idx), lineno) => {
                     if let value::Value::String(name) = self.read_constant(idx) {
                         match self.globals.get(name) {
                             Some(val) => {
                                 self.stack.push(val.clone());
-
                             }
                             None => {
                                 return Err(InterpreterError::Runtime(format!(
-                                            "undefined variable '{}' at line {}",
-                                            name, lineno.value
-                                            )));
+                                    "undefined variable '{}' at line {}",
+                                    name, lineno.value
+                                )));
                             }
                         }
                     } else {
-                        panic!("expected string when defining global, found {:?}",
-                               value::type_of(self.read_constant(idx)));
+                        panic!(
+                            "expected string when defining global, found {:?}",
+                            value::type_of(self.read_constant(idx))
+                        );
                     }
                 }
                 (bytecode::Op::Not, lineno) => {
@@ -394,6 +398,14 @@ mod tests {
     #[test]
     fn var_decl_nil() {
         let code_or_err = Compiler::default().compile(String::from("var x;"));
+        match code_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
+    }
+    #[test]
+    fn test_var_reading() {
+        let code_or_err = Compiler::default().compile(String::from("var x = 2; print x;"));
         match code_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),

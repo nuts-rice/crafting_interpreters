@@ -32,6 +32,7 @@ enum ParseFn {
     Number,
     Literal,
     String,
+    Variable,
 }
 
 //Given a token type gives
@@ -220,6 +221,25 @@ impl Compiler {
             }
         }
     }
+
+    fn variable(&mut self) -> Result<(), String> {
+        let tok = self.previous().clone();
+        self.name_variable(tok)
+    }
+
+    fn name_variable(&mut self, tok: scanner::Token) -> Result<(), String> {
+        if tok.ty != scanner::TokenType::Identifier {
+            return Err("expected identifier".to_string());
+        }
+        if let Some(scanner::Literal::Identifier(name)) = tok.literal.clone() {
+            let idx = self.identifier_constant(name);
+            self.emit_op(bytecode::Op::GetGlobal(idx), tok.line);
+            Ok(())
+        } else {
+            panic!("expected identifier when parsing var, found {:?}", tok);
+        }
+    }
+
     //table colum for infix parse used here
     fn binary(&mut self) -> Result<(), String> {
         let operator = self.previous().clone();
@@ -359,6 +379,7 @@ impl Compiler {
             ParseFn::Number => self.number(),
             ParseFn::Literal => self.literal(),
             ParseFn::String => self.string(),
+            ParseFn::Variable => self.variable(),
         }
     }
 
@@ -503,7 +524,7 @@ impl Compiler {
                 precendence: Precedence::Comparison,
             },
             scanner::TokenType::Identifier => ParseRule {
-                prefix: None,
+                prefix: Some(ParseFn::Variable),
                 infix: None,
                 precendence: Precedence::None,
             },

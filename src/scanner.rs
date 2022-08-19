@@ -177,6 +177,14 @@ impl Scanner {
                     TokenType::Greater
                 })
             }
+            '>' => {
+                let matches_eq = self.matches('=');
+                self.add_token(if matches_eq {
+                    TokenType::GreaterEqual
+                } else {
+                    TokenType::Greater
+                })
+            }
             '/' => {
                 if self.matches('/') {
                     while self.peek() != '\n' && !self.is_at_end() {
@@ -185,6 +193,14 @@ impl Scanner {
                 } else {
                     self.add_token(TokenType::Slash)
                 }
+            }
+            '=' => {
+                let matches_eq = self.matches('=');
+                self.add_token(if matches_eq {
+                    TokenType::EqualEqual
+                } else {
+                    TokenType::Equal
+                })
             }
             ' ' | '\r' | '\t' => {}
             '\n' => {
