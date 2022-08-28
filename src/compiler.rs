@@ -163,7 +163,7 @@ impl Compiler {
         self.parse_precendce(Precedence::Assignment)
     }
 
-    fn grouping(&mut self) -> Result<(), String> {
+    fn grouping(&mut self, _can_assign: bool) -> Result<(), String> {
         self.expression()?;
         if let Err(err) = self.consume(
             scanner::TokenType::RightParen,
@@ -175,7 +175,7 @@ impl Compiler {
         }
     }
 
-    fn number(&mut self) -> Result<(), String> {
+    fn number(&mut self, _can_assign: bool) -> Result<(), String> {
         let tok = self.previous().clone();
         match tok.literal {
             Some(scanner::Literal::Number(n)) => {
@@ -189,7 +189,7 @@ impl Compiler {
         }
     }
 
-    fn string(&mut self) -> Result<(), String> {
+    fn string(&mut self, _can_assign: bool) -> Result<(), String> {
         let tok = self.previous().clone();
         match tok.literal {
             Some(scanner::Literal::Str(s)) => {
@@ -201,7 +201,7 @@ impl Compiler {
         }
     }
 
-    fn literal(&mut self) -> Result<(), String> {
+    fn literal(&mut self, _can_assign: bool) -> Result<(), String> {
         let tok = self.previous().clone();
         match tok.ty {
             scanner::TokenType::Nil => {
@@ -222,18 +222,23 @@ impl Compiler {
         }
     }
 
-    fn variable(&mut self) -> Result<(), String> {
+    fn variable(&mut self, _can_assign: bool) -> Result<(), String> {
         let tok = self.previous().clone();
-        self.name_variable(tok)
+        self.name_variable(tok, _can_assign)
     }
 
-    fn name_variable(&mut self, tok: scanner::Token) -> Result<(), String> {
+    fn name_variable(&mut self, tok: scanner::Token, _can_assign: bool) -> Result<(), String> {
         if tok.ty != scanner::TokenType::Identifier {
             return Err("expected identifier".to_string());
         }
         if let Some(scanner::Literal::Identifier(name)) = tok.literal.clone() {
             let idx = self.identifier_constant(name);
-            self.emit_op(bytecode::Op::GetGlobal(idx), tok.line);
+            if _can_assign && self.matches(scanner::TokenType::Equal) {
+                self.expression()?;
+                self.emit_op(bytecode::Op::SetGlobal(idx), tok.line);
+            } else {
+                self.emit_op(bytecode::Op::GetGlobal(idx), tok.line);
+            }
             Ok(())
         } else {
             panic!("expected identifier when parsing var, found {:?}", tok);
@@ -241,7 +246,7 @@ impl Compiler {
     }
 
     //table colum for infix parse used here
-    fn binary(&mut self) -> Result<(), String> {
+    fn binary(&mut self, _can_assign: bool) -> Result<(), String> {
         let operator = self.previous().clone();
         let rule = Compiler::get_rule(operator.ty);
         self.parse_precendce(Compiler::next_precedence(rule.precendence))?;
@@ -298,7 +303,7 @@ impl Compiler {
         }
     }
 
-    fn unary(&mut self) -> Result<(), String> {
+    fn unary(&mut self, _can_assign: bool) -> Result<(), String> {
         let operator = self.previous().clone();
 
         self.parse_precendce(Precedence::Unary)?;
@@ -347,8 +352,9 @@ impl Compiler {
 
     fn parse_precendce(&mut self, precendence: Precedence) -> Result<(), String> {
         self.advance();
+        let can_assign = precendence <= Precedence::Assignment;
         match Compiler::get_rule(self.previous().ty).prefix {
-            Some(parse_fn) => self.apply_parse_fn(parse_fn)?,
+            Some(parse_fn) => self.apply_parse_fn(parse_fn, can_assign)?,
             None => {
                 return Err(self.error("Expected expression."));
             }
@@ -358,9 +364,12 @@ impl Compiler {
             println!("{:?} {:?}", self.current_tok(), precendence);
             self.advance();
             match Compiler::get_rule(self.previous().ty).infix {
-                Some(parse_fn) => self.apply_parse_fn(parse_fn)?,
+                Some(parse_fn) => self.apply_parse_fn(parse_fn, can_assign)?,
                 None => panic!("could not find infix rule to apply tok = {:?}", self.peek()),
             }
+        }
+        if can_assign && self.matches(scanner::TokenType::Equal) {
+            return Err(self.error("invalid assignment target"));
         }
 
         Ok(())
@@ -371,15 +380,15 @@ impl Compiler {
         format!("{} at line={}, col ={}.", error_is, tok.line, tok.col)
     }
 
-    fn apply_parse_fn(&mut self, parse_fn: ParseFn) -> Result<(), String> {
+    fn apply_parse_fn(&mut self, parse_fn: ParseFn, _can_assign: bool) -> Result<(), String> {
         match parse_fn {
-            ParseFn::Grouping => self.grouping(),
-            ParseFn::Unary => self.unary(),
-            ParseFn::Binary => self.binary(),
-            ParseFn::Number => self.number(),
-            ParseFn::Literal => self.literal(),
-            ParseFn::String => self.string(),
-            ParseFn::Variable => self.variable(),
+            ParseFn::Grouping => self.grouping(_can_assign),
+            ParseFn::Unary => self.unary(_can_assign),
+            ParseFn::Binary => self.binary(_can_assign),
+            ParseFn::Number => self.number(_can_assign),
+            ParseFn::Literal => self.literal(_can_assign),
+            ParseFn::String => self.string(_can_assign),
+            ParseFn::Variable => self.variable(_can_assign),
         }
     }
 

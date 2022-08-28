@@ -4,36 +4,54 @@ use std::collections::HashMap;
 
 #[allow(dead_code)]
 pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
-    println!("== {} ==", name);
+    println!("==== {} ====", name);
+    println!("==== constants ====");
+    for (idx, constant) in chunk.constants.iter().enumerate() {
+        println!("{:<4} {:?}", idx, constant);
+    }
+    println!("==== code ====");
     for (idx, (op, lineno)) in chunk.code.iter().enumerate() {
-        print!("{:04} ", idx);
-        match op {
-            bytecode::Op::Return => print!("OP_RETURN"),
+        let formatted_op = match op {
+            bytecode::Op::Return => format!("OP_RETURN"),
             bytecode::Op::Constant(const_idx) => {
-                print!("OP_CONSTANT {:?}", chunk.constants[*const_idx])
+                format!(
+                    "OP_CONSTANT {:?} (idx={})",
+                    chunk.constants[*const_idx], *const_idx
+                )
             }
-            bytecode::Op::Nil => print!("OP_NIL"),
-            bytecode::Op::True => print!("OP_TRUE"),
-            bytecode::Op::False => print!("OP_FALSE"),
-            bytecode::Op::Negate => print!("OP_NEGATE"),
-            bytecode::Op::Add => print!("OP_ADD"),
-            bytecode::Op::Subtract => print!("OP_SUBTRACT"),
-            bytecode::Op::Multiply => print!("OP_MULTIPLY"),
-            bytecode::Op::Divide => print!("OP_DIVIDE"),
-            bytecode::Op::Not => print!("OP_NOT"),
-            bytecode::Op::Equal => print!("OP_EQUAL"),
-            bytecode::Op::Greater => print!("OP_GREATER"),
-            bytecode::Op::Less => print!("OP_LESS"),
-            bytecode::Op::Print => print!("OP_PRINT"),
-            bytecode::Op::Pop => print!("OP_POP"),
-            bytecode::Op::DefineGlobal(global_idx) => {
-                print!("OP_DEFINE_GLOBAL {:?}", chunk.constants[*global_idx])
-            }
-            bytecode::Op::GetGlobal(global_idx) => {
-                print!("OP_GET_GLOBAL {:?}", chunk.constants[*global_idx])
-            }
-        }
-        println!("\t\tline {}", lineno.value);
+            bytecode::Op::Nil => format!("OP_NIL"),
+            bytecode::Op::True => format!("OP_TRUE"),
+            bytecode::Op::False => format!("OP_FALSE"),
+            bytecode::Op::Negate => format!("OP_NEGATE"),
+            bytecode::Op::Add => format!("OP_ADD"),
+            bytecode::Op::Subtract => format!("OP_SUBTRACT"),
+            bytecode::Op::Multiply => format!("OP_MULTIPLY"),
+            bytecode::Op::Divide => format!("OP_DIVIDE"),
+            bytecode::Op::Not => format!("OP_NOT"),
+            bytecode::Op::Equal => format!("OP_EQUAL"),
+            bytecode::Op::Greater => format!("OP_GREATER"),
+            bytecode::Op::Less => format!("OP_LESS"),
+            bytecode::Op::Print => format!("OP_PRINT"),
+            bytecode::Op::Pop => format!("OP_POP"),
+            bytecode::Op::DefineGlobal(global_idx) => format!(
+                "OP_DEFINE_GLOBAL {:?} (idx={})",
+                chunk.constants[*global_idx], *global_idx
+            ),
+            bytecode::Op::GetGlobal(global_idx) => format!(
+                "OP_GET_GLOBAL {:?} (idx={})",
+                chunk.constants[*global_idx], *global_idx
+            ),
+            bytecode::Op::SetGlobal(global_idx) => format!(
+                "OP_SET_GLOBAL {:?} (idx={})",
+                chunk.constants[*global_idx], *global_idx
+            ),
+        };
+        println!(
+            "{0: <04}  {1: <30} {2: <30}",
+            idx,
+            formatted_op,
+            format!("line: {}", lineno.value)
+        );
     }
 }
 
@@ -135,7 +153,7 @@ impl Interpreter {
                             self.pop_stack();
                             self.pop_stack();
                             self.stack
-                                .push(value::Value::String(format!("{}{}", s1, s2)));
+                                .push(value::Value::String(format!("{}{}", s2, s1)));
                         }
                         _ => {
                             return Err(InterpreterError::Runtime(format!(
@@ -169,8 +187,8 @@ impl Interpreter {
                 }
                 (bytecode::Op::DefineGlobal(idx), _) => {
                     if let value::Value::String(name) = self.read_constant(idx).clone() {
-                        self.globals.insert(name, self.peek().clone());
-                        self.pop_stack();
+                        let val = self.pop_stack();
+                        self.globals.insert(name, val);
                     } else {
                         panic!(
                             "expected string when defining global, found {:?}",
@@ -194,6 +212,24 @@ impl Interpreter {
                     } else {
                         panic!(
                             "expected string when defining global, found {:?}",
+                            value::type_of(self.read_constant(idx))
+                        );
+                    }
+                }
+                (bytecode::Op::SetGlobal(idx), lineno) => {
+                    if let value::Value::String(name) = self.read_constant(idx).clone() {
+                        if self.globals.contains_key(&name) {
+                            let val = self.peek().clone();
+                            self.globals.insert(name, val);
+                        } else {
+                            return Err(InterpreterError::Runtime(format!(
+                                "Use of undefined var {} in setitem expression at line {}.",
+                                name, lineno.value
+                            )));
+                        }
+                    } else {
+                        panic!(
+                            "expected string when stting globale, found {:?}",
                             value::type_of(self.read_constant(idx))
                         );
                     }
@@ -298,7 +334,7 @@ impl Interpreter {
                 self.pop_stack();
                 self.stack
                     .push(value::Value::Number(Interpreter::apply_numeric_binop(
-                        *n1, *n2, binop,
+                        *n2, *n1, binop,
                     )));
                 Ok(())
             }
