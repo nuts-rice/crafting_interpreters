@@ -92,12 +92,17 @@ impl Compiler {
             return Err(err);
         }
 
-        self.define_global(global_idx);
+        self.define_var(global_idx);
         Ok(())
     }
 
-    fn define_global(&mut self, global_idx: usize) {
+    fn define_var(&mut self, global_idx: usize) {
         if self.scope_depth > 0 {
+            if let Some(last) = self.locals.last_mut() {
+                last.depth = self.scope_depth;
+            } else {
+                panic!("expected nonempty locals");
+            }
             return;
         }
         let line = self.previous().line;
@@ -125,7 +130,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn identifiers_equal(id: &Option<scanner::Literal>, id2: &Option<scanner::Literal>) -> bool {
+    fn identifiers_equal(id1: &Option<scanner::Literal>, id2: &Option<scanner::Literal>) -> bool {
         match (id1, id2) {
             (
                 Some(scanner::Literal::Identifier(name1)),
@@ -143,7 +148,7 @@ impl Compiler {
     fn add_local(&mut self, name: scanner::Token) {
         self.locals.push(Local {
             name,
-            depth: self.scope_depth,
+            depth: -1, //not yet defined (refer to edge case)
         });
     }
 
@@ -175,7 +180,7 @@ impl Compiler {
     fn statement(&mut self) -> Result<(), String> {
         if self.matches(scanner::TokenType::Print) {
             self.print_statement()?;
-        } else if self.matchs(scanner::TokenType::LeftBrace) {
+        } else if self.matches(scanner::TokenType::LeftBrace) {
             self.begin_scope();
             self.block()?;
             self.end_scope();
@@ -183,6 +188,14 @@ impl Compiler {
             self.expression_statement()?;
         }
         Ok(())
+    }
+
+    fn matches(&mut self, ty: scanner::TokenType) -> bool {
+        if self.check(ty) {
+            self.advance();
+            return true;
+        }
+        false
     }
 
     fn block(&mut self) -> Result<(), String> {
@@ -202,6 +215,22 @@ impl Compiler {
 
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
+
+        let mut pop_count = 0;
+        for local in self.locals.iter().rev() {
+            if local.depth > self.scope_depth {
+                pop_count += 1
+            } else {
+                break;
+            }
+        }
+        let pop_count = pop_count;
+
+        let line = self.previous().line;
+        for _ in 0..pop_count {
+            self.emit_op(bytecode::Op::Pop, line);
+            self.locals.pop();
+        }
     }
 
     fn expression_statement(&mut self) -> Result<(), String> {
@@ -224,14 +253,6 @@ impl Compiler {
         }
         self.emit_op(bytecode::Op::Print, self.previous().clone().line);
         Ok(())
-    }
-
-    fn matches(&mut self, ty: scanner::TokenType) -> bool {
-        if self.check(ty) {
-            self.advance();
-            return true;
-        }
-        false
     }
 
     fn check(&self, ty: scanner::TokenType) -> bool {
@@ -315,17 +336,44 @@ impl Compiler {
             return Err("expected identifier".to_string());
         }
         if let Some(scanner::Literal::Identifier(name)) = tok.literal.clone() {
-            let idx = self.identifier_constant(name);
+            let get_op: bytecode::Op;
+            let set_op: bytecode::Op;
+            match self.resolve_local(&tok.literal) {
+                Ok(Some(idx)) => {
+                    get_op = bytecode::Op::GetLocal(idx);
+                    set_op = bytecode::Op::SetLocal(idx);
+                }
+                Ok(None) => {
+                    let idx = self.identifier_constant(name.clone());
+                    get_op = bytecode::Op::GetGlobal(idx);
+                    set_op = bytecode::Op::SetGlobal(idx);
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
             if _can_assign && self.matches(scanner::TokenType::Equal) {
                 self.expression()?;
-                self.emit_op(bytecode::Op::SetGlobal(idx), tok.line);
+                self.emit_op(set_op, tok.line);
             } else {
-                self.emit_op(bytecode::Op::GetGlobal(idx), tok.line);
+                self.emit_op(get_op, tok.line);
             }
             Ok(())
         } else {
             panic!("expected identifier when parsing var, found {:?}", tok);
         }
+    }
+
+    fn resolve_local(&self, name: &Option<scanner::Literal>) -> Result<Option<usize>, String> {
+        for (idx, local) in self.locals.iter().rev().enumerate() {
+            if Compiler::identifiers_equal(&local.name.literal, name) {
+                if local.depth == -1 {
+                    return Err(self.error("Cannot read local var in its own initializor"));
+                }
+                return Ok(Some(self.locals.len() - 1 - idx));
+            }
+        }
+        Ok(None)
     }
 
     //table colum for infix parse used here

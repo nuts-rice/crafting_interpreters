@@ -45,6 +45,8 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
                 "OP_SET_GLOBAL {:?} (idx={})",
                 chunk.constants[*global_idx], *global_idx
             ),
+            bytecode::Op::GetLocal(idx) => format!("OP_GET_LOCAL (idx={})", *idx),
+            bytecode::Op::SetLocal(idx) => format!("OP_SET_LOCAL (idx={})", *idx),
         };
         println!(
             "{0: <04}  {1: <30} {2: <30}",
@@ -234,6 +236,15 @@ impl Interpreter {
                         );
                     }
                 }
+                (bytecode::Op::GetLocal(idx), _) => {
+                    let val = self.stack[idx].clone();
+                    self.stack.push(val);
+                }
+                (bytecode::Op::SetLocal(idx), _) => {
+                    let val = self.peek();
+                    self.stack[idx] = val.clone();
+                }
+
                 (bytecode::Op::Not, lineno) => {
                     let top_stack = self.peek();
                     let maybe_bool = Interpreter::extract_bool(top_stack);
@@ -402,6 +413,7 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
 
+    use crate::bytecode_interp::*;
     use crate::compiler::Compiler;
 
     #[test]
@@ -443,7 +455,64 @@ mod tests {
     fn test_var_reading() {
         let code_or_err = Compiler::default().compile(String::from("var x = 2; print x;"));
         match code_or_err {
-            Ok(_) => {}
+            Ok(code) => {
+                let mut interp = Interpreter::default();
+                let result = interp.interpret(code);
+                match result {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["2"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn setting_locals_test() {
+        let code_or_err = Compiler::default().compile(String::from("{\n\
+                                                                   var breakfast = \"beignets\";\n\
+                                                                   var beverage = \"cafe au lait\";\n\
+                                                                   breakfast = \"beignets with \" + beverage;\n\
+                                                                   print breakfast;\n\
+                                                                   }\n",
+                                                                   ));
+        match code_or_err {
+            Ok(code) => {
+                let mut interp = Interpreter::default();
+                let result = interp.interpret(code);
+                match result {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["beignets with cafe au lait"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn reading_locals_test() {
+        let code_or_err = Compiler::default().compile(String::from("{var x = 2; print x;}"));
+        match code_or_err {
+            Ok(code) => {
+                let mut interp = Interpreter::default();
+                let result = interp.interpret(code);
+                match result {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["2"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
             Err(err) => panic!("{}", err),
         }
     }

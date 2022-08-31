@@ -23,6 +23,8 @@ pub enum Op {
     DefineGlobal(usize),
     GetGlobal(usize),
     SetGlobal(usize),
+    GetLocal(usize),
+    SetLocal(usize),
 }
 
 #[derive(Default, Copy, Clone, Debug)]
