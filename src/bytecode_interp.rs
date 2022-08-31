@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_locals_test() {
+    fn getting_locals_test() {
         let code_or_err = Compiler::default().compile(String::from("{var x = 2; print x;}"));
         match code_or_err {
             Ok(code) => {
