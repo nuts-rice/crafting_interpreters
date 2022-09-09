@@ -40,6 +40,7 @@ enum ParseFn {
     Literal,
     String,
     Variable,
+    And,
 }
 
 //Given a token type gives
@@ -180,6 +181,10 @@ impl Compiler {
     fn statement(&mut self) -> Result<(), String> {
         if self.matches(scanner::TokenType::Print) {
             self.print_statement()?;
+        } else if self.matches(scanner::TokenType::If) {
+            self.if_statement()?;
+        } else if self.matches(scanner::TokenType::While) {
+            self.while_statement()?;
         } else if self.matches(scanner::TokenType::LeftBrace) {
             self.begin_scope();
             self.block()?;
@@ -187,6 +192,78 @@ impl Compiler {
         } else {
             self.expression_statement()?;
         }
+        Ok(())
+    }
+
+    fn if_statement(&mut self) -> Result<(), String> {
+        if let Err(err) = self.consume(scanner::TokenType::LeftParen, "Expected '(' after 'if'.") {
+            return Err(err);
+        }
+        self.expression()?;
+        if let Err(err) = self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ')' after condition.",
+        ) {
+            return Err(err);
+        }
+
+        let then_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
+        self.statement()?;
+        let else_jump = self.emit_jump(bytecode::Op::Jump(0));
+
+        self.patch_jump(then_jump);
+        if self.matches(scanner::TokenType::Else) {
+            self.statement()?;
+        }
+        self.patch_jump(else_jump);
+        Ok(())
+    }
+
+    fn patch_jump(&mut self, jump_loc: usize) {
+        let true_jump = self.current_chunk.code.len() - jump_loc - 1;
+        let (maybe_jump, lineno) = self.current_chunk.code[jump_loc];
+        if let bytecode::Op::JumpIfFalse(_) = maybe_jump {
+            self.current_chunk.code[jump_loc] = (bytecode::Op::JumpIfFalse(true_jump), lineno);
+        } else if let bytecode::Op::Jump(_) = maybe_jump {
+            self.current_chunk.code[jump_loc] = (bytecode::Op::Jump(true_jump), lineno);
+        } else {
+            panic!(
+                "patch jump attempted but couldnt find jump. Found {:?}.",
+                maybe_jump
+            );
+        }
+    }
+
+    fn emit_jump(&mut self, op: bytecode::Op) -> usize {
+        self.emit_op(op, self.previous().line);
+        self.current_chunk.code.len() - 1
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        let offset = self.current_chunk.code.len() - loop_start + 2;
+        self.emit_op(bytecode::Op::Loop(offset), self.previous().line);
+    }
+
+    fn while_statement(&mut self) -> Result<(), String> {
+        let loop_start = self.current_chunk.code.len();
+        if let Err(err) = self.consume(scanner::TokenType::LeftParen, "expected '(' after 'while'.")
+        {
+            return Err(err);
+        }
+        self.expression()?;
+        if let Err(err) = self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ')' after condition",
+        ) {
+            return Err(err);
+        }
+        let exit_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
+        self.statement()?;
+        self.emit_loop(loop_start);
+        self.patch_jump(exit_jump);
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
         Ok(())
     }
 
@@ -454,6 +531,14 @@ impl Compiler {
         }
     }
 
+    fn and_(&mut self, _can_assign: bool) -> Result<(), String> {
+        let end_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
+        self.parse_precendce(Precedence::And)?;
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
     fn emit_number(&mut self, n: f64, lineno: usize) {
         let const_idx = self.current_chunk.add_constant_number(n);
         self.emit_op(bytecode::Op::Constant(const_idx), lineno);
@@ -520,6 +605,7 @@ impl Compiler {
             ParseFn::Literal => self.literal(_can_assign),
             ParseFn::String => self.string(_can_assign),
             ParseFn::Variable => self.variable(_can_assign),
+            ParseFn::And => self.and_(_can_assign),
         }
     }
 
@@ -680,8 +766,8 @@ impl Compiler {
             },
             scanner::TokenType::And => ParseRule {
                 prefix: None,
-                infix: None,
-                precendence: Precedence::None,
+                infix: Some(ParseFn::And),
+                precendence: Precedence::And,
             },
             scanner::TokenType::Class => ParseRule {
                 prefix: None,

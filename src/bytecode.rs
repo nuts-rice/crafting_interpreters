@@ -25,6 +25,9 @@ pub enum Op {
     SetGlobal(usize),
     GetLocal(usize),
     SetLocal(usize),
+    JumpIfFalse(usize),
+    Jump(usize),
+    Loop(usize),
 }
 
 #[derive(Default, Copy, Clone, Debug)]
