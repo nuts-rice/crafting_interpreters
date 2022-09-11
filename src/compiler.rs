@@ -86,13 +86,10 @@ impl Compiler {
             self.emit_op(bytecode::Op::Nil, line)
         }
 
-        if let Err(err) = self.consume(
+        self.consume(
             scanner::TokenType::Semicolon,
             "expected ';' after var declaration",
-        ) {
-            return Err(err);
-        }
-
+        )?;
         self.define_var(global_idx);
         Ok(())
     }
@@ -185,6 +182,8 @@ impl Compiler {
             self.if_statement()?;
         } else if self.matches(scanner::TokenType::While) {
             self.while_statement()?;
+        } else if self.matches(scanner::TokenType::For) {
+            self.for_statement()?;
         } else if self.matches(scanner::TokenType::LeftBrace) {
             self.begin_scope();
             self.block()?;
@@ -192,6 +191,52 @@ impl Compiler {
         } else {
             self.expression_statement()?;
         }
+        Ok(())
+    }
+
+    fn for_statement(&mut self) -> Result<(), String> {
+        self.begin_scope();
+        self.consume(scanner::TokenType::LeftParen, "Expected '(' after 'for'.")?;
+        if self.matches(scanner::TokenType::Semicolon) {
+        } else if self.matches(scanner::TokenType::Var) {
+            self.var_decl()?;
+        } else {
+            self.expression_statement()?;
+        }
+
+        let mut loop_start = self.current_chunk.code.len();
+        let mut maybe_exit_jump = None;
+        if !self.matches(scanner::TokenType::Semicolon) {
+            self.expression()?;
+            self.consume(
+                scanner::TokenType::Semicolon,
+                "expected ';' after loop condition",
+            )?;
+            maybe_exit_jump = Some(self.emit_jump(bytecode::Op::JumpIfFalse(0)));
+            self.emit_op(bytecode::Op::Pop, self.previous().line);
+        }
+        let maybe_exit_jump = maybe_exit_jump;
+        if !self.matches(scanner::TokenType::RightParen) {
+            let body_jump = self.emit_jump(bytecode::Op::Jump(0));
+            let increment_start = self.current_chunk.code.len() + 1;
+            self.expression()?;
+            self.emit_op(bytecode::Op::Pop, self.previous().line);
+            self.consume(
+                scanner::TokenType::RightParen,
+                "Expected ')' after for clauses",
+            )?;
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+        self.statement()?;
+        self.emit_loop(loop_start);
+        if let Some(exit_jump) = maybe_exit_jump {
+            self.patch_jump(exit_jump);
+            self.emit_op(bytecode::Op::Pop, self.previous().line);
+        }
+        self.end_scope();
+
         Ok(())
     }
 

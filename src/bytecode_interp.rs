@@ -289,6 +289,7 @@ impl Interpreter {
                         (value::Value::Number(n1), value::Value::Number(n2)) => {
                             self.pop_stack();
                             self.pop_stack();
+
                             self.stack.push(value::Value::Bool(n2 > n1));
                         }
                         _ => {
@@ -622,19 +623,19 @@ mod tests {
             Err(err) => panic!("{}", err),
         }
     }
-    /*
+
     #[test]
     fn while_test() {
         let code_or_err = Compiler::default().compile(String::from(
-            "var x = 0;\n\
+            "{var x = 0;\n\
              var sum = 0;\n\
              while (x < 100) {\n\
                x = x + 1;\n\
                sum = sum + x;\n\
              }\n\
-             print sum;",
+             print sum;}",
         ));
-    
+
         match code_or_err {
             Ok(code) => {
                 let mut interp = Interpreter::default();
@@ -651,7 +652,7 @@ mod tests {
             Err(err) => panic!("{}", err),
         }
     }
-*/
+
     #[test]
     fn and_test_1() {
         let code_or_err = Compiler::default().compile(String::from(
@@ -671,6 +672,34 @@ mod tests {
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["dog"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{}", err),
+        }
+    }
+    #[test]
+    fn for_test_1() {
+        let code_or_err = Compiler::default().compile(String::from(
+            "{\n\
+                    var fact = 1;\n\
+                    for (var i = 1; i <= 10; i = i + 1) {\n\
+                        fact = fact * i;\n\
+                    }\n\
+                    print fact;\n\
+                    }",
+        ));
+
+        match code_or_err {
+            Ok(code) => {
+                let mut interp = Interpreter::default();
+                let res = interp.interpret(code);
+                match res {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["3628800"]);
                     }
                     Err(err) => {
                         panic!("{:?}", err);

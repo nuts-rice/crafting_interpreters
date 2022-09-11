@@ -172,9 +172,9 @@ impl Scanner {
             '<' => {
                 let matches_eq = self.matches('=');
                 self.add_token(if matches_eq {
-                    TokenType::GreaterEqual
+                    TokenType::LessEqual
                 } else {
-                    TokenType::Greater
+                    TokenType::Less
                 })
             }
             '>' => {
