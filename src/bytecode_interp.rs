@@ -61,8 +61,7 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
 }
 
 pub struct Interpreter {
-    chunk: bytecode::Chunk,
-    ip: usize,
+    frames: Vec<CallFrame>,
     stack: Vec<bytecode::Value>,
     output: Vec<String>,
     globals: HashMap<String, bytecode::Value>,
@@ -71,13 +70,13 @@ pub struct Interpreter {
 impl Default for Interpreter {
     fn default() -> Interpreter {
         let mut res = Interpreter {
-            chunk: Default::default(),
-            ip: 0,
+            frames: Vec::new(),
             stack: Vec::new(),
             output: Vec::new(),
             globals: HashMap::new(),
         };
         res.stack.reserve(256);
+        res.frames.reserve(64);
         res
     }
 }
@@ -98,15 +97,49 @@ pub enum InterpreterError {
     Runtime(String),
 }
 
+#[derive(Default)]
+struct CallFrame {
+    function: bytecode::Function,
+    ip: usize,
+    slots_offset: usize,
+}
+
+impl CallFrame {
+    fn next_op(&mut self) -> (bytecode::Op, bytecode::Lineno) {
+        let res = self.function.chunk.code[self.ip];
+        self.ip += 1;
+        res
+    }
+
+    fn read_constant(&self, idx: usize) -> &bytecode::Value {
+        &self.function.chunk.constants[idx]
+    }
+}
+
 impl Interpreter {
-    pub fn interpret(&mut self, chunk: bytecode::Chunk) -> Result<(), InterpreterError> {
-        self.chunk = chunk;
+    //Callframes basically a layer of abstraction yeah
+    pub fn interpret(&mut self, func: bytecode::Function) -> Result<(), InterpreterError> {
+        self.stack.push(bytecode::Value::Function(func.clone()));
+        self.frames.push(CallFrame {
+            function: func,
+            ip: 0,
+            slots_offset: 1,
+        });
         self.run()
+    }
+
+    fn frame_mut(&mut self) -> &mut CallFrame {
+        let frames_len = self.frames.len();
+        &mut self.frames[frames_len - 1]
+    }
+
+    fn frame(&self) -> &CallFrame {
+        &self.frames[self.frames.len() - 1]
     }
 
     fn run(&mut self) -> Result<(), InterpreterError> {
         loop {
-            if self.ip >= self.chunk.code.len() {
+            if self.frame().ip >= self.frame().function.chunk.code.len() {
                 return Ok(());
             }
             let op = self.next_op();
@@ -240,23 +273,25 @@ impl Interpreter {
                     }
                 }
                 (bytecode::Op::GetLocal(idx), _) => {
-                    let val = self.stack[idx].clone();
+                    let slots_offset = self.frame().slots_offset;
+                    let val = self.stack[slots_offset + idx].clone();
                     self.stack.push(val);
                 }
                 (bytecode::Op::JumpIfFalse(offset), _) => {
                     if Interpreter::is_falsey(&self.peek()) {
-                        self.ip += offset;
+                        self.frame_mut().ip += offset;
                     }
                 }
                 (bytecode::Op::Jump(offset), _) => {
-                    self.ip += offset;
+                    self.frame_mut().ip += offset;
                 }
                 (bytecode::Op::Loop(offset), _) => {
-                    self.ip -= offset;
+                    self.frame_mut().ip -= offset;
                 }
                 (bytecode::Op::SetLocal(idx), _) => {
                     let val = self.peek();
-                    self.stack[idx] = val.clone();
+                    let slots_offset = self.frame().slots_offset;
+                    self.stack[slots_offset + idx] = val.clone();
                 }
 
                 (bytecode::Op::Not, lineno) => {
@@ -390,9 +425,7 @@ impl Interpreter {
     }
 
     fn next_op(&mut self) -> (bytecode::Op, bytecode::Lineno) {
-        let res = self.chunk.code[self.ip];
-        self.ip += 1;
-        res
+        self.frame_mut().next_op()
     }
 
     fn is_falsey(val: &bytecode::Value) -> bool {
@@ -414,7 +447,7 @@ impl Interpreter {
     }
 
     fn read_constant(&self, idx: usize) -> &bytecode::Value {
-        &self.chunk.constants[idx]
+        &self.frame().read_constant(idx)
     }
 
     fn extract_bool(val: &bytecode::Value) -> Option<bool> {
@@ -441,8 +474,8 @@ mod tests {
 
     #[test]
     fn compiler_test_1() {
-        let code_or_err = Compiler::default().compile(String::from("print 42 * 12;"));
-        match code_or_err {
+        let func_or_err = Compiler::compile(String::from("print 42 * 12;"));
+        match func_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),
         }
@@ -450,8 +483,8 @@ mod tests {
 
     #[test]
     fn compiler_test_2() {
-        let code_or_err = Compiler::default().compile(String::from("print -2 * 3 + (-4 / 2);"));
-        match code_or_err {
+        let func_or_err = Compiler::compile(String::from("print -2 * 3 + (-4 / 2);"));
+        match func_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),
         }
@@ -459,8 +492,8 @@ mod tests {
 
     #[test]
     fn var_decl_test() {
-        let code_or_err = Compiler::default().compile(String::from("var x = 2;"));
-        match code_or_err {
+        let func_or_err = Compiler::compile(String::from("var x = 2;"));
+        match func_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),
         }
@@ -468,19 +501,19 @@ mod tests {
 
     #[test]
     fn var_decl_nil() {
-        let code_or_err = Compiler::default().compile(String::from("var x;"));
-        match code_or_err {
+        let func_or_err = Compiler::compile(String::from("var x;"));
+        match func_or_err {
             Ok(_) => {}
             Err(err) => panic!("{}", err),
         }
     }
     #[test]
     fn test_var_reading() {
-        let code_or_err = Compiler::default().compile(String::from("var x = 2; print x;"));
-        match code_or_err {
-            Ok(code) => {
+        let func_or_err = Compiler::compile(String::from("var x = 2; print x;"));
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let result = interp.interpret(code);
+                let result = interp.interpret(func);
                 match result {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["2"]);
@@ -496,17 +529,17 @@ mod tests {
 
     #[test]
     fn setting_locals_test() {
-        let code_or_err = Compiler::default().compile(String::from("{\n\
+        let func_or_err = Compiler::compile(String::from("{\n\
                                                                    var breakfast = \"beignets\";\n\
                                                                    var beverage = \"cafe au lait\";\n\
                                                                    breakfast = \"beignets with \" + beverage;\n\
                                                                    print breakfast;\n\
                                                                    }\n",
                                                                    ));
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let result = interp.interpret(code);
+                let result = interp.interpret(func);
                 match result {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["beignets with cafe au lait"]);
@@ -522,11 +555,11 @@ mod tests {
 
     #[test]
     fn getting_locals_test() {
-        let code_or_err = Compiler::default().compile(String::from("{var x = 2; print x;}"));
-        match code_or_err {
-            Ok(code) => {
+        let func_or_err = Compiler::compile(String::from("{var x = 2; print x;}"));
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let result = interp.interpret(code);
+                let result = interp.interpret(func);
                 match result {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["2"]);
@@ -542,7 +575,7 @@ mod tests {
 
     #[test]
     fn if_stmt_test() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "var x = 0;\n\
                 var y = 1;\n\
                 if (x) {\n\
@@ -552,10 +585,10 @@ mod tests {
                     print y;\n\
                 }",
         ));
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let result = interp.interpret(code);
+                let result = interp.interpret(func);
                 match result {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["1"]);
@@ -570,7 +603,7 @@ mod tests {
     }
     #[test]
     fn if_then_else_test_1() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "var x = 0;\n\
              if (x) {\n\
                print \"hello\";\n\
@@ -578,10 +611,10 @@ mod tests {
                print \"goodbye\";\n\
              }",
         ));
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let result = interp.interpret(code);
+                let result = interp.interpret(func);
                 match result {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["goodbye"]);
@@ -597,7 +630,7 @@ mod tests {
 
     #[test]
     fn if_then_else_test_2() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "var x = 1;\n\
              if (x) {\n\
                print \"hello\";\n\
@@ -606,10 +639,10 @@ mod tests {
              }",
         ));
 
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let res = interp.interpret(code);
+                let res = interp.interpret(func);
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["hello"]);
@@ -625,7 +658,7 @@ mod tests {
 
     #[test]
     fn while_test() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "{var x = 0;\n\
              var sum = 0;\n\
              while (x < 100) {\n\
@@ -635,10 +668,10 @@ mod tests {
              print sum;}",
         ));
 
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let res = interp.interpret(code);
+                let res = interp.interpret(func);
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["5151"]);
@@ -654,7 +687,7 @@ mod tests {
 
     #[test]
     fn and_test_1() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "var x = false;\n\
              var y = true;\n\
              if (y and x) {\n\
@@ -664,10 +697,10 @@ mod tests {
              }\n",
         ));
 
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let res = interp.interpret(code);
+                let res = interp.interpret(func);
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["dog"]);
@@ -680,9 +713,39 @@ mod tests {
             Err(err) => panic!("{}", err),
         }
     }
+
+    #[test]
+    fn or_test_1() {
+        let func_or_err = Compiler::compile(String::from(
+            "var x = false;\n\
+             var y = true;\n\
+             if (y or x) {\n\
+                 print \"cat\";\n\
+             } else { \n\
+                print \"dog\";\n\
+             }\n",
+        ));
+
+        match func_or_err {
+            Ok(func) => {
+                let mut interp = Interpreter::default();
+                let res = interp.interpret(func);
+                match res {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["cat"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{}", err),
+        }
+    }
+
     #[test]
     fn for_test_1() {
-        let code_or_err = Compiler::default().compile(String::from(
+        let func_or_err = Compiler::compile(String::from(
             "{\n\
                     var fact = 1;\n\
                     for (var i = 1; i <= 10; i = i + 1) {\n\
@@ -691,11 +754,10 @@ mod tests {
                     print fact;\n\
                     }",
         ));
-
-        match code_or_err {
-            Ok(code) => {
+        match func_or_err {
+            Ok(func) => {
                 let mut interp = Interpreter::default();
-                let res = interp.interpret(code);
+                let res = interp.interpret(func);
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["3628800"]);

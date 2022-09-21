@@ -1,18 +1,49 @@
 use crate::bytecode;
 use crate::scanner;
+use std::mem;
 
-#[derive(Default)]
+#[allow(dead_code)]
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
-    current_chunk: bytecode::Chunk,
+    function: bytecode::Function,
+    function_type: FunctionType,
     current: usize,
     locals: Vec<Local>,
     scope_depth: i64,
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
+enum FunctionType {
+    Function,
+    Script,
+}
+
 struct Local {
     name: scanner::Token,
     depth: i64,
+}
+
+impl Default for Compiler {
+    fn default() -> Compiler {
+        Compiler {
+            tokens: Default::default(),
+            function: Default::default(),
+            function_type: FunctionType::Script,
+            current: 0,
+            locals: vec![Local {
+                name: scanner::Token {
+                    ty: scanner::TokenType::Identifier,
+                    lexeme: Default::default(),
+                    literal: Some(scanner::Literal::Identifier("".to_string())),
+                    line: 0,
+                    col: -1,
+                },
+                depth: 0,
+            }],
+            scope_depth: 0,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -41,6 +72,7 @@ enum ParseFn {
     String,
     Variable,
     And,
+    Or,
 }
 
 //Given a token type gives
@@ -55,26 +87,86 @@ struct ParseRule {
 }
 
 impl Compiler {
-    pub fn compile(&mut self, input: String) -> Result<bytecode::Chunk, String> {
+    pub fn compile(input: String) -> Result<bytecode::Function, String> {
+        let mut compiler = Compiler::default();
         match scanner::scan_tokens(input) {
             Ok(tokens) => {
-                self.tokens = tokens;
-                self.current_chunk = bytecode::Chunk::default();
-                while !self.is_at_end() {
-                    self.declaration()?;
+                compiler.tokens = tokens;
+                compiler.function = bytecode::Function::default();
+                while !compiler.is_at_end() {
+                    compiler.declaration()?;
                 }
-                Ok(std::mem::take(&mut self.current_chunk))
+                Ok(std::mem::take(&mut compiler.function))
             }
             Err(err) => Err(err),
         }
     }
 
     fn declaration(&mut self) -> Result<(), String> {
-        if self.matches(scanner::TokenType::Var) {
+        if self.matches(scanner::TokenType::Fun) {
+            self.fun_decl()
+        } else if self.matches(scanner::TokenType::Var) {
             self.var_decl()
         } else {
             self.statement()
         }
+    }
+
+    fn fun_decl(&mut self) -> Result<(), String> {
+        let global_idx = self.parse_variable("expected function name.")?;
+        self.mark_initialized();
+        self.function(FunctionType::Function)?;
+        self.define_var(global_idx);
+        Ok(())
+    }
+
+    fn function(&mut self, _function_type: FunctionType) -> Result<(), String> {
+        let mut compiler = Compiler::default();
+        //Call stack stuff
+        //Return addresses and callframes etc
+        mem::swap(&mut compiler.tokens, &mut self.tokens);
+        compiler.function = bytecode::Function::default();
+
+        compiler.begin_scope();
+        compiler.consume(
+            scanner::TokenType::LeftParen,
+            "Expected '(' after function name.",
+        )?;
+
+        if !self.check(scanner::TokenType::RightParen) {
+            loop {
+                compiler.function.arity += 1;
+                let param_const_idx = compiler.parse_variable("expected parameter name")?;
+                compiler.define_var(param_const_idx);
+
+                if !self.matches(scanner::TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        compiler.consume(
+            scanner::TokenType::RightParen,
+            "Expected ')' after param list",
+        )?;
+
+        compiler.consume(
+            scanner::TokenType::RightParen,
+            "Expected ')' after param list",
+        )?;
+
+        compiler.consume(
+            scanner::TokenType::LeftBrace,
+            "Expected '{' before function body",
+        )?;
+        compiler.block()?;
+
+        let function = std::mem::take(&mut compiler.function);
+        mem::swap(&mut compiler.tokens, &mut self.tokens);
+        let const_idx = self
+            .current_chunk()
+            .add_constant(bytecode::Value::Function(function));
+        self.emit_op(bytecode::Op::Constant(const_idx), self.previous().line);
+        Ok(())
     }
 
     fn var_decl(&mut self) -> Result<(), String> {
@@ -94,13 +186,21 @@ impl Compiler {
         Ok(())
     }
 
-    fn define_var(&mut self, global_idx: usize) {
+    fn mark_initialized(&mut self) -> bool {
         if self.scope_depth > 0 {
             if let Some(last) = self.locals.last_mut() {
                 last.depth = self.scope_depth;
             } else {
                 panic!("expected nonempty locals");
             }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn define_var(&mut self, global_idx: usize) {
+        if self.mark_initialized() {
             return;
         }
         let line = self.previous().line;
@@ -172,7 +272,7 @@ impl Compiler {
     }
 
     fn identifier_constant(&mut self, name: String) -> usize {
-        self.current_chunk.add_constant_string(name)
+        self.current_chunk().add_constant_string(name)
     }
 
     fn statement(&mut self) -> Result<(), String> {
@@ -204,7 +304,7 @@ impl Compiler {
             self.expression_statement()?;
         }
 
-        let mut loop_start = self.current_chunk.code.len();
+        let mut loop_start = self.current_chunk().code.len();
         let mut maybe_exit_jump = None;
         if !self.matches(scanner::TokenType::Semicolon) {
             self.expression()?;
@@ -218,7 +318,7 @@ impl Compiler {
         let maybe_exit_jump = maybe_exit_jump;
         if !self.matches(scanner::TokenType::RightParen) {
             let body_jump = self.emit_jump(bytecode::Op::Jump(0));
-            let increment_start = self.current_chunk.code.len() + 1;
+            let increment_start = self.current_chunk().code.len() + 1;
             self.expression()?;
             self.emit_op(bytecode::Op::Pop, self.previous().line);
             self.consume(
@@ -266,12 +366,12 @@ impl Compiler {
     }
 
     fn patch_jump(&mut self, jump_loc: usize) {
-        let true_jump = self.current_chunk.code.len() - jump_loc - 1;
-        let (maybe_jump, lineno) = self.current_chunk.code[jump_loc];
+        let true_jump = self.current_chunk().code.len() - jump_loc - 1;
+        let (maybe_jump, lineno) = self.current_chunk().code[jump_loc];
         if let bytecode::Op::JumpIfFalse(_) = maybe_jump {
-            self.current_chunk.code[jump_loc] = (bytecode::Op::JumpIfFalse(true_jump), lineno);
+            self.current_chunk().code[jump_loc] = (bytecode::Op::JumpIfFalse(true_jump), lineno);
         } else if let bytecode::Op::Jump(_) = maybe_jump {
-            self.current_chunk.code[jump_loc] = (bytecode::Op::Jump(true_jump), lineno);
+            self.current_chunk().code[jump_loc] = (bytecode::Op::Jump(true_jump), lineno);
         } else {
             panic!(
                 "patch jump attempted but couldnt find jump. Found {:?}.",
@@ -282,16 +382,16 @@ impl Compiler {
 
     fn emit_jump(&mut self, op: bytecode::Op) -> usize {
         self.emit_op(op, self.previous().line);
-        self.current_chunk.code.len() - 1
+        self.current_chunk().code.len() - 1
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
-        let offset = self.current_chunk.code.len() - loop_start + 2;
+        let offset = self.current_chunk().code.len() - loop_start + 2;
         self.emit_op(bytecode::Op::Loop(offset), self.previous().line);
     }
 
     fn while_statement(&mut self) -> Result<(), String> {
-        let loop_start = self.current_chunk.code.len();
+        let loop_start = self.current_chunk().code.len();
         if let Err(err) = self.consume(scanner::TokenType::LeftParen, "expected '(' after 'while'.")
         {
             return Err(err);
@@ -419,7 +519,7 @@ impl Compiler {
         let tok = self.previous().clone();
         match tok.literal {
             Some(scanner::Literal::Str(s)) => {
-                let const_idx = self.current_chunk.add_constant_string(s);
+                let const_idx = self.current_chunk().add_constant_string(s);
                 self.emit_op(bytecode::Op::Constant(const_idx), tok.line);
                 Ok(())
             }
@@ -492,7 +592,7 @@ impl Compiler {
                 if local.depth == -1 {
                     return Err(self.error("Cannot read local var in its own initializor"));
                 }
-                return Ok(Some(self.locals.len() - 1 - idx));
+                return Ok(Some(self.locals.len() - 2 - idx));
             }
         }
         Ok(None)
@@ -584,13 +684,25 @@ impl Compiler {
         Ok(())
     }
 
+    fn or(&mut self, _can_assign: bool) -> Result<(), String> {
+        let else_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
+        let end_jump = self.emit_jump(bytecode::Op::Jump(0));
+        self.patch_jump(else_jump);
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
+        self.parse_precendce(Precedence::Or)?;
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
     fn emit_number(&mut self, n: f64, lineno: usize) {
-        let const_idx = self.current_chunk.add_constant_number(n);
+        let const_idx = self.current_chunk().add_constant_number(n);
         self.emit_op(bytecode::Op::Constant(const_idx), lineno);
     }
 
     fn emit_op(&mut self, op: bytecode::Op, lineno: usize) {
-        self.current_chunk.code.push((op, bytecode::Lineno(lineno)))
+        self.current_chunk()
+            .code
+            .push((op, bytecode::Lineno(lineno)))
     }
 
     fn consume(
@@ -609,6 +721,10 @@ impl Compiler {
             self.peek().col,
             on_err_str
         ))
+    }
+
+    fn current_chunk(&mut self) -> &mut bytecode::Chunk {
+        &mut self.function.chunk
     }
 
     fn parse_precendce(&mut self, precendence: Precedence) -> Result<(), String> {
@@ -651,6 +767,7 @@ impl Compiler {
             ParseFn::String => self.string(_can_assign),
             ParseFn::Variable => self.variable(_can_assign),
             ParseFn::And => self.and_(_can_assign),
+            ParseFn::Or => self.or(_can_assign),
         }
     }
 
@@ -851,8 +968,8 @@ impl Compiler {
             },
             scanner::TokenType::Or => ParseRule {
                 prefix: None,
-                infix: None,
-                precendence: Precedence::None,
+                infix: Some(ParseFn::Or),
+                precendence: Precedence::Or,
             },
             scanner::TokenType::Print => ParseRule {
                 prefix: None,

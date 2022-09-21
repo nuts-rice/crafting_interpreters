@@ -48,11 +48,11 @@ fn main() {
         match maybe_input {
             Ok(input) => {
                 if matches.is_present(BYTECODE_STR) {
-                    let code_or_err = compiler::Compiler::default().compile(input);
-                    match code_or_err {
-                        Ok(code) => {
-                            bytecode_interp::dissassemble_chunk(&code, input_file);
-                            let res = bytecode_interp::Interpreter::default().interpret(code);
+                    let func_or_err = compiler::Compiler::compile(input);
+                    match func_or_err {
+                        Ok(func) => {
+                            bytecode_interp::dissassemble_chunk(&func.chunk, input_file);
+                            let res = bytecode_interp::Interpreter::default().interpret(func);
                             match res {
                                 Ok(()) => {
                                     std::process::exit(0);
