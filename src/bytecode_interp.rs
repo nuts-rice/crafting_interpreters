@@ -328,13 +328,7 @@ impl Interpreter {
     }
 
     fn print_val(&mut self, val: &bytecode::Value) {
-        let output = match val {
-            bytecode::Value::Number(n) => format!("{}", n),
-            bytecode::Value::Bool(b) => format!("{}", b),
-            bytecode::Value::String(s) => s.to_string(),
-            bytecode::Value::Nil => "nil".to_string(),
-        };
-
+        let output = format!("{:?}", val);
         println!("{}", output);
         self.output.push(output);
     }
@@ -403,9 +397,10 @@ impl Interpreter {
 
     fn is_falsey(val: &bytecode::Value) -> bool {
         match val {
-            bytecode::Value::Nil => false,
+            bytecode::Value::Nil => true,
             bytecode::Value::Bool(b) => !*b,
             bytecode::Value::Number(f) => *f == 0.0,
+            bytecode::Value::Function(_) => false,
             bytecode::Value::String(s) => s.is_empty(),
         }
     }

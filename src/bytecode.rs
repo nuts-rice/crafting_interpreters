@@ -31,11 +31,13 @@ pub enum Op {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum Value {
     Number(f64),
     Bool(bool),
     Nil,
     String(String),
+    Function(Function),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -44,6 +46,14 @@ pub enum Type {
     Bool,
     String,
     Nil,
+    Function,
+}
+
+#[derive(Default, Clone)]
+pub struct Function {
+    pub arity: u8,
+    pub chunk: Chunk,
+    pub name: String,
 }
 
 pub fn type_of(value: &Value) -> Type {
@@ -51,6 +61,7 @@ pub fn type_of(value: &Value) -> Type {
         Value::Number(_) => Type::Number,
         Value::Bool(_) => Type::Bool,
         Value::String(_) => Type::String,
+        Value::Function(_) => Type::Function,
         Value::Nil => Type::Nil,
     }
 }
@@ -61,6 +72,7 @@ impl fmt::Debug for Value {
             Value::Number(num) => write!(f, "{}", num),
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "{}", s),
+            Value::Function(func) => write!(f, "<fn {}>", func.name),
             Value::Nil => write!(f, "nil"),
         }
     }
@@ -75,7 +87,7 @@ pub fn Lineno(value: usize) -> Lineno {
     Lineno { value }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Chunk {
     pub code: Vec<(Op, Lineno)>,
     pub constants: Vec<Value>,
