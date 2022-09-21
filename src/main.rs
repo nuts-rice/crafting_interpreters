@@ -10,7 +10,6 @@ mod expr;
 mod interpreter;
 mod parser;
 mod scanner;
-mod value;
 
 static INPUT_STR: &str = "INPUT";
 static SHOW_TOKENS_STR: &str = "tokens";
