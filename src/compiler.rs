@@ -12,7 +12,7 @@ pub struct Compiler {
     scope_depth: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 #[allow(dead_code)]
 enum FunctionType {
     Function,
@@ -73,6 +73,7 @@ enum ParseFn {
     Variable,
     And,
     Or,
+    Call,
 }
 
 //Given a token type gives
@@ -96,6 +97,7 @@ impl Compiler {
                 while !compiler.is_at_end() {
                     compiler.declaration()?;
                 }
+                compiler.emit_return();
                 Ok(std::mem::take(&mut compiler.function))
             }
             Err(err) => Err(err),
@@ -122,6 +124,7 @@ impl Compiler {
 
     fn function(&mut self, _function_type: FunctionType) -> Result<(), String> {
         let mut compiler = Compiler::default();
+        compiler.function_type = _function_type;
         //Call stack stuff
         //Return addresses and callframes etc
         compiler.function = bytecode::Function::default();
@@ -157,15 +160,11 @@ impl Compiler {
         )?;
 
         compiler.consume(
-            scanner::TokenType::RightParen,
-            "Expected ')' after param list",
-        )?;
-
-        compiler.consume(
             scanner::TokenType::LeftBrace,
             "Expected '{' before function body",
         )?;
         compiler.block()?;
+        compiler.emit_return();
 
         let function = std::mem::take(&mut compiler.function);
         mem::swap(&mut compiler.tokens, &mut self.tokens);
@@ -286,12 +285,14 @@ impl Compiler {
     fn statement(&mut self) -> Result<(), String> {
         if self.matches(scanner::TokenType::Print) {
             self.print_statement()?;
-        } else if self.matches(scanner::TokenType::If) {
-            self.if_statement()?;
-        } else if self.matches(scanner::TokenType::While) {
-            self.while_statement()?;
         } else if self.matches(scanner::TokenType::For) {
             self.for_statement()?;
+        } else if self.matches(scanner::TokenType::If) {
+            self.if_statement()?;
+        } else if self.matches(scanner::TokenType::Return) {
+            self.return_statement()?;
+        } else if self.matches(scanner::TokenType::While) {
+            self.while_statement()?;
         } else if self.matches(scanner::TokenType::LeftBrace) {
             self.begin_scope();
             self.block()?;
@@ -366,10 +367,28 @@ impl Compiler {
         let else_jump = self.emit_jump(bytecode::Op::Jump(0));
 
         self.patch_jump(then_jump);
+        self.emit_op(bytecode::Op::Pop, self.previous().line);
         if self.matches(scanner::TokenType::Else) {
             self.statement()?;
         }
         self.patch_jump(else_jump);
+        Ok(())
+    }
+
+    fn return_statement(&mut self) -> Result<(), String> {
+        if self.function_type == FunctionType::Script {
+            return Err("can't return from top level code".to_string());
+        }
+        if self.matches(scanner::TokenType::Semicolon) {
+            self.emit_return();
+        } else {
+            self.expression()?;
+            self.consume(
+                scanner::TokenType::Semicolon,
+                "Expected ';' after return value.",
+            )?;
+            self.emit_op(bytecode::Op::Return, self.previous().line);
+        }
         Ok(())
     }
 
@@ -702,6 +721,29 @@ impl Compiler {
         Ok(())
     }
 
+    fn call(&mut self, _can_assign: bool) -> Result<(), String> {
+        let arg_count = self.argument_list()?;
+        self.emit_op(bytecode::Op::Call(arg_count), self.previous().line);
+        Ok(())
+    }
+    fn argument_list(&mut self) -> Result<u8, String> {
+        let mut arg_count: u8 = 0;
+        if !self.check(scanner::TokenType::RightParen) {
+            loop {
+                self.expression()?;
+                arg_count += 1;
+                if !self.matches(scanner::TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(
+            scanner::TokenType::RightParen,
+            "Expected ')' after argument list",
+        )?;
+        Ok(arg_count)
+    }
+
     fn emit_number(&mut self, n: f64, lineno: usize) {
         let const_idx = self.current_chunk().add_constant_number(n);
         self.emit_op(bytecode::Op::Constant(const_idx), lineno);
@@ -711,6 +753,11 @@ impl Compiler {
         self.current_chunk()
             .code
             .push((op, bytecode::Lineno(lineno)))
+    }
+
+    fn emit_return(&mut self) {
+        self.emit_op(bytecode::Op::Nil, self.previous().line);
+        self.emit_op(bytecode::Op::Return, self.previous().line);
     }
 
     fn consume(
@@ -776,6 +823,7 @@ impl Compiler {
             ParseFn::Variable => self.variable(_can_assign),
             ParseFn::And => self.and_(_can_assign),
             ParseFn::Or => self.or(_can_assign),
+            ParseFn::Call => self.call(_can_assign),
         }
     }
 
@@ -825,8 +873,8 @@ impl Compiler {
         match operator {
             scanner::TokenType::LeftParen => ParseRule {
                 prefix: Some(ParseFn::Grouping),
-                infix: None,
-                precendence: Precedence::None,
+                infix: Some(ParseFn::Call),
+                precendence: Precedence::Call,
             },
             scanner::TokenType::RightParen => ParseRule {
                 prefix: None,

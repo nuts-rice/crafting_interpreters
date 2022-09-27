@@ -28,6 +28,7 @@ pub enum Op {
     JumpIfFalse(usize),
     Jump(usize),
     Loop(usize),
+    Call(u8),
 }
 
 #[derive(Clone)]

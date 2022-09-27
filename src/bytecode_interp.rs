@@ -50,6 +50,7 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::SetLocal(idx) => format!("OP_SET_LOCAL (idx={})", *idx),
             bytecode::Op::Jump(offset) => format!("OP_JUMP {}", *offset),
             bytecode::Op::Loop(offset) => format!("OP_LOOP {}", *offset),
+            bytecode::Op::Call(arg_count) => format!("OP_CALL {}", *arg_count),
         };
         println!(
             "{0: <04}  {1: <30} {2: <30}",
@@ -139,13 +140,25 @@ impl Interpreter {
 
     fn run(&mut self) -> Result<(), InterpreterError> {
         loop {
-            if self.frame().ip >= self.frame().function.chunk.code.len() {
+            if self.frames.len() == 0 || self.frame().ip >= self.frame().function.chunk.code.len() {
                 return Ok(());
             }
             let op = self.next_op();
+            println!("{:?}", op);
             match op {
                 (bytecode::Op::Return, _) => {
-                    return Ok(());
+                    let result = self.pop_stack();
+                    let num_to_pop = self.stack.len() - self.frame().slots_offset
+                        + usize::from(self.frame().function.arity);
+                    self.frames.pop();
+                    for _ in 0..num_to_pop {
+                        self.pop_stack();
+                    }
+                    if self.frames.is_empty() {
+                        self.pop_stack();
+                        return Ok(());
+                    }
+                    self.stack.push(result);
                 }
                 (bytecode::Op::Constant(idx), _) => {
                     let constant = self.read_constant(idx).clone();
@@ -288,6 +301,9 @@ impl Interpreter {
                 (bytecode::Op::Loop(offset), _) => {
                     self.frame_mut().ip -= offset;
                 }
+                (bytecode::Op::Call(arg_count), _) => {
+                    self.call_value(self.peek_by(arg_count.into()).clone(), arg_count)?;
+                }
                 (bytecode::Op::SetLocal(idx), _) => {
                     let val = self.peek();
                     let slots_offset = self.frame().slots_offset;
@@ -360,6 +376,38 @@ impl Interpreter {
                 }
             }
         }
+    }
+
+    fn call_value(
+        &mut self,
+        value: bytecode::Value,
+        arg_count: u8,
+    ) -> Result<(), InterpreterError> {
+        match value {
+            bytecode::Value::Function(func) => {
+                self.call(func, arg_count)?;
+                Ok(())
+            }
+            _ => Err(InterpreterError::Runtime(format!(
+                "attempted to call non-callable value of type {:?}",
+                bytecode::type_of(&value)
+            ))),
+        }
+    }
+
+    fn call(&mut self, func: bytecode::Function, arg_count: u8) -> Result<(), InterpreterError> {
+        if arg_count != func.arity {
+            return Err(InterpreterError::Runtime(format!(
+                "Expected {} arguments but found {}.",
+                func.arity, arg_count
+            )));
+        }
+
+        self.frames.push(CallFrame::default());
+        let mut frame = self.frames.last_mut().unwrap();
+        frame.function = func;
+        frame.slots_offset = self.stack.len() - usize::from(arg_count);
+        Ok(())
     }
 
     fn print_val(&mut self, val: &bytecode::Value) {
@@ -782,7 +830,37 @@ mod tests {
         ));
         match func_or_err {
             Ok(_) => {}
-            Err(err) => panic!("{}".err),
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn functions_test_2() {
+        let func_or_err = Compiler::compile(String::from(
+            "fun f(x, y) {\n\
+                    return x + y;\n\
+                }\n\
+                \n\
+                print f;\n",
+        ));
+        match func_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn functions_test_3() {
+        let func_or_err = Compiler::compile(String::from(
+            "fun f() {\n\
+                    return;\n\
+                }\n\
+                \n\
+                print f();\n",
+        ));
+        match func_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}", err),
         }
     }
 }
