@@ -770,4 +770,19 @@ mod tests {
             Err(err) => panic!("{}", err),
         }
     }
+
+    #[test]
+    fn functions_test_1() {
+        let func_or_err = Compiler::compile(String::from(
+            "fun function1() {\n\
+                    print \"function test success\";\n\
+                }\n\
+                \n\
+                print function1;\n",
+        ));
+        match func_or_err {
+            Ok(_) => {}
+            Err(err) => panic!("{}".err),
+        }
+    }
 }
