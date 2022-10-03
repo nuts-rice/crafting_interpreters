@@ -149,7 +149,7 @@ impl Compiler {
                 let param_const_idx = compiler.parse_variable("expected parameter name")?;
                 compiler.define_var(param_const_idx);
 
-                if !self.matches(scanner::TokenType::Comma) {
+                if !compiler.matches(scanner::TokenType::Comma) {
                     break;
                 }
             }
@@ -350,17 +350,12 @@ impl Compiler {
     }
 
     fn if_statement(&mut self) -> Result<(), String> {
-        if let Err(err) = self.consume(scanner::TokenType::LeftParen, "Expected '(' after 'if'.") {
-            return Err(err);
-        }
+        self.consume(scanner::TokenType::LeftParen, "Expected '(' after 'if'.")?;
         self.expression()?;
-        if let Err(err) = self.consume(
+        self.consume(
             scanner::TokenType::RightParen,
             "Expected ')' after condition.",
-        ) {
-            return Err(err);
-        }
-
+        )?;
         let then_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
         self.emit_op(bytecode::Op::Pop, self.previous().line);
         self.statement()?;
