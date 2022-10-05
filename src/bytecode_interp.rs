@@ -1,7 +1,7 @@
 use crate::bytecode;
+use crate::native_functions;
 use std::collections::HashMap;
 use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[allow(dead_code)]
 pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
@@ -52,6 +52,9 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Jump(offset) => format!("OP_JUMP {}", *offset),
             bytecode::Op::Loop(offset) => format!("OP_LOOP {}", *offset),
             bytecode::Op::Call(arg_count) => format!("OP_CALL {}", *arg_count),
+            bytecode::Op::Closure(idx) => {
+                format!("OP_CLOSURE {:?} (idx={})", chunk.constants[*idx], *idx)
+            }
         };
         println!(
             "{0: <04}  {1: <30} {2: <30}",
@@ -82,21 +85,30 @@ impl Default for Interpreter {
         res.globals.insert(
             String::from("clock"),
             bytecode::Value::NativeFunction(bytecode::NativeFunction {
+                arity: 0,
                 name: String::from("clock"),
-                func: clock,
+                func: native_functions::clock,
             }),
         );
+        res.globals.insert(
+            String::from("exponent"),
+            bytecode::Value::NativeFunction(bytecode::NativeFunction {
+                arity: 1,
+                name: String::from("exponent"),
+                func: native_functions::exponent,
+            }),
+        );
+        res.globals.insert(
+            String::from("sqrt"),
+            bytecode::Value::NativeFunction(bytecode::NativeFunction {
+                arity: 1,
+                name: String::from("sqrt"),
+                func: native_functions::sqrt,
+            }),
+        );
+
         res
     }
-}
-
-fn clock(args: Vec<bytecode::Value>) -> Result<bytecode::Value, String> {
-    if args.len() != 0 {
-        return Err(format!("expected 0 args, recieved {}", args.len()));
-    }
-    let start = SystemTime::now();
-    let since_epoch = start.duration_since(UNIX_EPOCH).unwrap();
-    Ok(bytecode::Value::Number(since_epoch.as_millis() as f64))
 }
 
 #[allow(dead_code)]
@@ -117,29 +129,32 @@ pub enum InterpreterError {
 
 #[derive(Default)]
 struct CallFrame {
-    function: bytecode::Function,
+    closure: bytecode::Closure,
     ip: usize,
     slots_offset: usize,
 }
 
 impl CallFrame {
     fn next_op(&mut self) -> (bytecode::Op, bytecode::Lineno) {
-        let res = self.function.chunk.code[self.ip];
+        let res = self.closure.function.chunk.code[self.ip];
         self.ip += 1;
         res
     }
 
     fn read_constant(&self, idx: usize) -> &bytecode::Value {
-        &self.function.chunk.constants[idx]
+        &self.closure.function.chunk.constants[idx]
     }
 }
 
 impl Interpreter {
     //Callframes basically a layer of abstraction yeah
     pub fn interpret(&mut self, func: bytecode::Function) -> Result<(), InterpreterError> {
-        self.stack.push(bytecode::Value::Function(func.clone()));
+        self.stack
+            .push(bytecode::Value::Function(bytecode::Closure {
+                function: func.clone(),
+            }));
         self.frames.push(CallFrame {
-            function: func,
+            closure: bytecode::Closure { function: func },
             ip: 0,
             slots_offset: 1,
         });
@@ -157,7 +172,9 @@ impl Interpreter {
 
     fn run(&mut self) -> Result<(), InterpreterError> {
         loop {
-            if self.frames.len() == 0 || self.frame().ip >= self.frame().function.chunk.code.len() {
+            if self.frames.len() == 0
+                || self.frame().ip >= self.frame().closure.function.chunk.code.len()
+            {
                 return Ok(());
             }
             let op = self.next_op();
@@ -166,7 +183,7 @@ impl Interpreter {
                 (bytecode::Op::Return, _) => {
                     let result = self.pop_stack();
                     let num_to_pop = self.stack.len() - self.frame().slots_offset
-                        + usize::from(self.frame().function.arity);
+                        + usize::from(self.frame().closure.function.arity);
                     self.frames.pop();
                     self.pop_stack_n_times(num_to_pop);
                     if self.frames.is_empty() {
@@ -174,6 +191,18 @@ impl Interpreter {
                         return Ok(());
                     }
                     self.stack.push(result);
+                }
+                (bytecode::Op::Closure(idx), _) => {
+                    let constant = self.read_constant(idx).clone();
+
+                    if let bytecode::Value::Function(closure) = constant {
+                        self.stack.push(bytecode::Value::Function(closure));
+                    } else {
+                        panic!(
+                            "when interpereting closure, expected function, found {:?}",
+                            bytecode::type_of(&constant)
+                        );
+                    }
                 }
                 (bytecode::Op::Constant(idx), _) => {
                     let constant = self.read_constant(idx).clone();
@@ -404,23 +433,8 @@ impl Interpreter {
                 Ok(())
             }
             bytecode::Value::NativeFunction(native_func) => {
-                let mut args = Vec::new();
-                for _ in 0..arg_count {
-                    args.push(self.pop_stack())
-                }
-                args.reverse();
-                let args = args;
-                self.pop_stack();
-                match (native_func.func)(args) {
-                    Ok(result) => {
-                        self.stack.push(result);
-                        Ok(())
-                    }
-                    Err(err) => Err(InterpreterError::Runtime(format!(
-                        "{}: {}",
-                        native_func.name, err
-                    ))),
-                }
+                self.native_call(native_func, arg_count)?;
+                Ok(())
             }
             _ => Err(InterpreterError::Runtime(format!(
                 "attempted to call non-callable value of type {:?}",
@@ -429,7 +443,8 @@ impl Interpreter {
         }
     }
 
-    fn call(&mut self, func: bytecode::Function, arg_count: u8) -> Result<(), InterpreterError> {
+    fn call(&mut self, closure: bytecode::Closure, arg_count: u8) -> Result<(), InterpreterError> {
+        let func = &closure.function;
         if arg_count != func.arity {
             return Err(InterpreterError::Runtime(format!(
                 "Expected {} arguments but found {}.",
@@ -439,9 +454,40 @@ impl Interpreter {
 
         self.frames.push(CallFrame::default());
         let mut frame = self.frames.last_mut().unwrap();
-        frame.function = func;
+        frame.closure = closure;
         frame.slots_offset = self.stack.len() - usize::from(arg_count);
         Ok(())
+    }
+
+    fn native_call(
+        &mut self,
+        native_func: bytecode::NativeFunction,
+        arg_count: u8,
+    ) -> Result<(), InterpreterError> {
+        if arg_count != native_func.arity {
+            return Err(InterpreterError::Runtime(format!(
+                "Expected {} arguments but found {}",
+                native_func.arity, arg_count
+            )));
+        }
+        let mut args = Vec::new();
+        for _ in 0..arg_count {
+            args.push(self.pop_stack())
+        }
+        args.reverse();
+        let args = args;
+        self.pop_stack();
+
+        match (native_func.func)(args) {
+            Ok(result) => {
+                self.stack.push(result);
+                Ok(())
+            }
+            Err(err) => Err(InterpreterError::Runtime(format!(
+                "{}: {}",
+                native_func.name, err
+            ))),
+        }
     }
 
     fn print_val(&mut self, val: &bytecode::Value) {

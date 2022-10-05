@@ -8,6 +8,7 @@ mod bytecode_interp;
 mod compiler;
 mod expr;
 mod interpreter;
+mod native_functions;
 mod parser;
 mod scanner;
 
