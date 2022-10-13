@@ -2,18 +2,39 @@ use crate::bytecode;
 use crate::scanner;
 use std::mem;
 
-#[allow(dead_code)]
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
-    function: bytecode::Function,
-    function_type: FunctionType,
-    current: usize,
-    locals: Vec<Local>,
-    scope_depth: i64,
+    token_idx: usize,
+    levels: Vec<Level>,
+    level_idx: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+impl Default for Compiler {
+    fn default() -> Compiler {
+        Compiler {
+            tokens: Default::default(),
+            token_idx: 0,
+            levels: vec![Default::default()],
+            level_idx: 0,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[allow(dead_code)]
+enum IsLocal {
+    True,
+    False,
+}
+
+#[derive(Eq, PartialEq)]
+#[allow(dead_code)]
+struct UpValue {
+    local_idx: usize,
+    is_local: IsLocal,
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 enum FunctionType {
     Function,
     Script,
@@ -24,13 +45,19 @@ struct Local {
     depth: i64,
 }
 
-impl Default for Compiler {
-    fn default() -> Compiler {
-        Compiler {
-            tokens: Default::default(),
+pub struct Level {
+    function: bytecode::Function,
+    function_type: FunctionType,
+    locals: Vec<Local>,
+    scope_depth: i64,
+    upvals: Vec<UpValue>,
+}
+
+impl Default for Level {
+    fn default() -> Level {
+        Level {
             function: Default::default(),
             function_type: FunctionType::Script,
-            current: 0,
             locals: vec![Local {
                 name: scanner::Token {
                     ty: scanner::TokenType::Identifier,
@@ -42,8 +69,15 @@ impl Default for Compiler {
                 depth: 0,
             }],
             scope_depth: 0,
+            upvals: Default::default(),
         }
     }
+}
+
+enum Resolution {
+    Local(usize),
+    Global,
+    UpValue(usize),
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -93,12 +127,11 @@ impl Compiler {
         match scanner::scan_tokens(input) {
             Ok(tokens) => {
                 compiler.tokens = tokens;
-                compiler.function = bytecode::Function::default();
                 while !compiler.is_at_end() {
                     compiler.declaration()?;
                 }
                 compiler.emit_return();
-                Ok(std::mem::take(&mut compiler.function))
+                Ok(std::mem::take(&mut compiler.current_level_mut().function))
             }
             Err(err) => Err(err),
         }
@@ -123,52 +156,50 @@ impl Compiler {
     }
 
     fn function(&mut self, _function_type: FunctionType) -> Result<(), String> {
-        let mut compiler = Compiler::default();
-        compiler.function_type = _function_type;
+        let mut level = Level::default();
+        level.function_type = _function_type;
         //Call stack stuff
         //Return addresses and callframes etc
-        compiler.function = bytecode::Function::default();
+        level.function = bytecode::Function::default();
         //defining
-        compiler.function.name =
+        level.function.name =
             if let Some(scanner::Literal::Identifier(fun_name)) = &self.previous().literal {
                 fun_name.clone()
             } else {
                 panic!("expected identifier");
             };
-        compiler.current = self.current;
-        mem::swap(&mut compiler.tokens, &mut self.tokens);
-        compiler.begin_scope();
-        compiler.consume(
+        self.push_level(level);
+        self.begin_scope();
+        self.consume(
             scanner::TokenType::LeftParen,
             "Expected '(' after function name.",
         )?;
 
-        if !compiler.check(scanner::TokenType::RightParen) {
+        if !self.check(scanner::TokenType::RightParen) {
             loop {
-                compiler.function.arity += 1;
-                let param_const_idx = compiler.parse_variable("expected parameter name")?;
-                compiler.define_var(param_const_idx);
+                self.current_function_mut().arity += 1;
+                let param_const_idx = self.parse_variable("expected parameter name")?;
+                self.define_var(param_const_idx);
 
-                if !compiler.matches(scanner::TokenType::Comma) {
+                if !self.matches(scanner::TokenType::Comma) {
                     break;
                 }
             }
         }
-        compiler.consume(
+        self.consume(
             scanner::TokenType::RightParen,
             "Expected ')' after param list",
         )?;
 
-        compiler.consume(
+        self.consume(
             scanner::TokenType::LeftBrace,
             "Expected '{' before function body",
         )?;
-        compiler.block()?;
-        compiler.emit_return();
+        self.block()?;
+        self.emit_return();
 
-        let function = std::mem::take(&mut compiler.function);
-        mem::swap(&mut compiler.tokens, &mut self.tokens);
-        self.current = compiler.current;
+        let function = std::mem::take(&mut self.current_level_mut().function);
+        self.pop_level();
         let const_idx = self
             .current_chunk()
             .add_constant(bytecode::Value::Function(bytecode::Closure { function }));
@@ -194,15 +225,28 @@ impl Compiler {
     }
 
     fn mark_initialized(&mut self) -> bool {
-        if self.scope_depth > 0 {
-            if let Some(last) = self.locals.last_mut() {
-                last.depth = self.scope_depth;
+        let scope_depth = self.scope_depth();
+        if scope_depth > 0 {
+            if let Some(last) = self.locals_mut().last_mut() {
+                last.depth = scope_depth;
             } else {
                 panic!("expected nonempty locals");
             }
             true
         } else {
             false
+        }
+    }
+
+    fn identifier_equal(id1: &Option<scanner::Literal>, name2: &String) -> bool {
+        match id1 {
+            Some(scanner::Literal::Identifier(name1)) => name1 == name2,
+            _ => {
+                panic!(
+                    "expected identifier in 'identifiers_equal' but found {:?}.",
+                    id1
+                );
+            }
         }
     }
 
@@ -215,17 +259,18 @@ impl Compiler {
     }
 
     fn declare_variable(&mut self) -> Result<(), String> {
-        if self.scope_depth == 0 {
+        if self.scope_depth() == 0 {
             return Ok(());
         }
 
         let name = self.previous().clone();
 
-        if self.locals.iter().rev().any(|local| {
+        let has_redeclaration = self.locals().iter().rev().any(|local| {
             local.depth != -1
-                && local.depth == self.scope_depth
+                && local.depth == self.scope_depth()
                 && Compiler::identifiers_equal(&local.name.literal, &name.literal)
-        }) {
+        });
+        if has_redeclaration {
             return Err(format!(
                 "Redeclartion of var {} in same scope.",
                 String::from_utf8(name.lexeme).unwrap()
@@ -251,23 +296,20 @@ impl Compiler {
     }
 
     fn add_local(&mut self, name: scanner::Token) {
-        self.locals.push(Local {
+        self.locals_mut().push(Local {
             name,
             depth: -1, //not yet defined (refer to edge case)
         });
     }
 
     fn parse_variable(&mut self, error_msg: &str) -> Result<usize, String> {
-        if let Err(err) = self.consume(scanner::TokenType::Identifier, error_msg) {
-            return Err(err);
-        }
+        self.consume(scanner::TokenType::Identifier, error_msg)?;
+        self.declare_variable()?;
 
-        if let Err(err) = self.declare_variable() {
-            return Err(err);
-        }
-        if self.scope_depth > 0 {
+        if self.scope_depth() > 0 {
             return Ok(0);
         }
+
         if let Some(scanner::Literal::Identifier(name)) = &self.previous().literal.clone() {
             Ok(self.identifier_constant(name.clone()))
         } else {
@@ -371,7 +413,7 @@ impl Compiler {
     }
 
     fn return_statement(&mut self) -> Result<(), String> {
-        if self.function_type == FunctionType::Script {
+        if self.function_type() == FunctionType::Script {
             return Err("can't return from top level code".to_string());
         }
         if self.matches(scanner::TokenType::Semicolon) {
@@ -454,15 +496,15 @@ impl Compiler {
     }
 
     fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+        self.current_level_mut().scope_depth += 1;
     }
 
     fn end_scope(&mut self) {
-        self.scope_depth -= 1;
+        self.current_level_mut().scope_depth -= 1;
 
         let mut pop_count = 0;
-        for local in self.locals.iter().rev() {
-            if local.depth > self.scope_depth {
+        for local in self.locals().iter().rev() {
+            if local.depth > self.scope_depth() {
                 pop_count += 1
             } else {
                 break;
@@ -473,7 +515,7 @@ impl Compiler {
         let line = self.previous().line;
         for _ in 0..pop_count {
             self.emit_op(bytecode::Op::Pop, line);
-            self.locals.pop();
+            self.locals_mut().pop();
         }
     }
 
@@ -582,7 +624,7 @@ impl Compiler {
         if let Some(scanner::Literal::Identifier(name)) = tok.literal.clone() {
             let get_op: bytecode::Op;
             let set_op: bytecode::Op;
-            match self.resolve_local(&tok.literal) {
+            match self.resolve_local(&name) {
                 Ok(Some(idx)) => {
                     get_op = bytecode::Op::GetLocal(idx);
                     set_op = bytecode::Op::SetLocal(idx);
@@ -608,16 +650,68 @@ impl Compiler {
         }
     }
 
-    fn resolve_local(&self, name: &Option<scanner::Literal>) -> Result<Option<usize>, String> {
-        for (idx, local) in self.locals.iter().rev().enumerate() {
-            if Compiler::identifiers_equal(&local.name.literal, name) {
+    fn resolve_local(&self, name: &String) -> Result<Option<usize>, String> {
+        Compiler::resolve_local_static(self.current_level(), name, self.previous())
+    }
+
+    fn resolve_local_static(
+        level: &Level,
+        name: &String,
+        prev_tok: &scanner::Token,
+    ) -> Result<Option<usize>, String> {
+        for (idx, local) in level.locals.iter().rev().enumerate() {
+            if Compiler::identifier_equal(&local.name.literal, name) {
                 if local.depth == -1 {
-                    return Err(self.error("Cannot read local var in its own initializor"));
+                    return Err(Compiler::error_at_tok(
+                        "Cannot read local var in its own initializor",
+                        prev_tok,
+                    ));
                 }
-                return Ok(Some(self.locals.len() - 2 - idx));
+                return Ok(Some(level.locals.len() - 2 - idx));
             }
         }
         Ok(None)
+    }
+
+    fn resolve_var(&mut self, name: &String) -> Result<Resolution, String> {
+        if let Some(idx) = self.resolve_local(&name)? {
+            return Ok(Resolution::Local(idx));
+        }
+        if let Some(idx) = self.resolve_upval(&name)? {
+            return Ok(Resolution::UpValue(idx));
+        }
+
+        Ok(Resolution::Global)
+    }
+
+    fn resolve_upval(&mut self, name: &String) -> Result<Option<usize>, String> {
+        if self.level_idx < 1 {
+            return Ok(None);
+        }
+        if let Some(local_idx) =
+            Compiler::resolve_local_static(&self.levels[self.level_idx - 1], name, self.previous())?
+        {
+            return Ok(Some(self.add_upval(local_idx, IsLocal::True)));
+        }
+
+        Ok(None)
+    }
+
+    fn add_upval(&mut self, local_idx: usize, is_local: IsLocal) -> usize {
+        let queried_upval = UpValue {
+            local_idx,
+            is_local,
+        };
+        if let Some(res) = self
+            .current_level()
+            .upvals
+            .iter()
+            .position(|query_upval| *query_upval == queried_upval)
+        {
+            return res;
+        }
+        self.current_level_mut().upvals.push(queried_upval);
+        self.current_level().upvals.len()
     }
 
     //table colum for infix parse used here
@@ -774,7 +868,45 @@ impl Compiler {
     }
 
     fn current_chunk(&mut self) -> &mut bytecode::Chunk {
-        &mut self.function.chunk
+        &mut self.current_level_mut().function.chunk
+    }
+
+    fn current_level(&self) -> &Level {
+        &self.levels[self.level_idx]
+    }
+
+    fn current_level_mut(&mut self) -> &mut Level {
+        &mut self.levels[self.level_idx]
+    }
+
+    fn push_level(&mut self, level: Level) {
+        self.levels.push(level);
+        self.level_idx += 1;
+    }
+
+    fn pop_level(&mut self) {
+        self.levels.pop();
+        self.level_idx -= 1;
+    }
+
+    fn current_function_mut(&mut self) -> &mut bytecode::Function {
+        &mut self.current_level_mut().function
+    }
+
+    fn function_type(&self) -> FunctionType {
+        self.current_level().function_type
+    }
+
+    fn scope_depth(&self) -> i64 {
+        self.current_level().scope_depth
+    }
+
+    fn locals(&self) -> &Vec<Local> {
+        &self.current_level().locals
+    }
+
+    fn locals_mut(&mut self) -> &mut Vec<Local> {
+        &mut self.current_level_mut().locals
     }
 
     fn parse_precendce(&mut self, precendence: Precedence) -> Result<(), String> {
@@ -786,9 +918,7 @@ impl Compiler {
                 return Err(self.error("Expected expression."));
             }
         }
-
-        while precendence <= Compiler::get_rule(self.current_tok().ty).precendence {
-            println!("{:?} {:?}", self.current_tok(), precendence);
+        while precendence <= Compiler::get_rule(self.peek().ty).precendence {
             self.advance();
             match Compiler::get_rule(self.previous().ty).infix {
                 Some(parse_fn) => self.apply_parse_fn(parse_fn, can_assign)?,
@@ -798,13 +928,18 @@ impl Compiler {
         if can_assign && self.matches(scanner::TokenType::Equal) {
             return Err(self.error("invalid assignment target"));
         }
-
         Ok(())
     }
 
     fn error(&self, error_is: &str) -> String {
-        let tok = self.previous();
-        format!("{} at line={}, col ={}.", error_is, tok.line, tok.col)
+        Compiler::error_at_tok(error_is, self.previous())
+    }
+
+    fn error_at_tok(error_is: &str, prev_tok: &scanner::Token) -> String {
+        format!(
+            "{} at line={}, col={}.",
+            error_is, prev_tok.line, prev_tok.col
+        )
     }
 
     fn apply_parse_fn(&mut self, parse_fn: ParseFn, _can_assign: bool) -> Result<(), String> {
@@ -826,18 +961,14 @@ impl Compiler {
 
     fn advance(&mut self) -> &scanner::Token {
         if !self.is_at_end() {
-            self.current += 1
+            self.token_idx += 1
         }
 
         self.previous()
     }
 
-    fn current_tok(&self) -> &scanner::Token {
-        &self.tokens[self.current]
-    }
-
     fn previous(&self) -> &scanner::Token {
-        &self.tokens[self.current - 1]
+        &self.tokens[self.token_idx - 1]
     }
 
     fn is_at_end(&self) -> bool {
@@ -845,7 +976,7 @@ impl Compiler {
     }
 
     fn peek(&self) -> &scanner::Token {
-        &self.tokens[self.current]
+        &self.tokens[self.token_idx]
     }
 
     fn next_precedence(precendence: Precedence) -> Precedence {

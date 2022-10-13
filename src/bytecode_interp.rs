@@ -49,6 +49,8 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::GetLocal(idx) => format!("OP_GET_LOCAL (idx={})", *idx),
             bytecode::Op::JumpIfFalse(loc) => format!("OP_JUMP_IF_FALSE {}", *loc),
             bytecode::Op::SetLocal(idx) => format!("OP_SET_LOCAL (idx={})", *idx),
+            bytecode::Op::GetUpVal(idx) => format!("OP_GET_UPVAL idx={}", *idx),
+            bytecode::Op::SetUpVal(idx) => format!("OP_SET_UPVAL idx={}", *idx),
             bytecode::Op::Jump(offset) => format!("OP_JUMP {}", *offset),
             bytecode::Op::Loop(offset) => format!("OP_LOOP {}", *offset),
             bytecode::Op::Call(arg_count) => format!("OP_CALL {}", *arg_count),
@@ -417,6 +419,12 @@ impl Interpreter {
                             )))
                         }
                     }
+                }
+                (bytecode::Op::GetUpVal(_), _) => {
+                    unimplemented!();
+                }
+                (bytecode::Op::SetUpVal(_), _) => {
+                    unimplemented!();
                 }
             }
         }
