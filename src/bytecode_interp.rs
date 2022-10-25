@@ -4,8 +4,10 @@ use std::collections::HashMap;
 use std::fmt;
 
 #[allow(dead_code)]
-pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
-    println!("==== {} ====", name);
+pub fn disassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
+    if name.len() > 0 {
+        println!("==== {} ====", name);
+    }
     println!("==== constants ====");
     for (idx, constant) in chunk.constants.iter().enumerate() {
         println!("{:<4} {:?}", idx, constant);
@@ -54,8 +56,11 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             bytecode::Op::Jump(offset) => format!("OP_JUMP {}", *offset),
             bytecode::Op::Loop(offset) => format!("OP_LOOP {}", *offset),
             bytecode::Op::Call(arg_count) => format!("OP_CALL {}", *arg_count),
-            bytecode::Op::Closure(idx) => {
-                format!("OP_CLOSURE {:?} (idx={})", chunk.constants[*idx], *idx)
+            bytecode::Op::Closure(idx, upvals) => {
+                format!(
+                    "OP_CLOSURE {:?} (idx={}, upvals={:?})",
+                    chunk.constants[*idx], *idx, upvals
+                )
             }
         };
         println!(
@@ -64,6 +69,19 @@ pub fn dissassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
             formatted_op,
             format!("line: {}", lineno.value)
         );
+    }
+}
+
+fn disassemble_builtin(args: Vec<bytecode::Value>) -> Result<bytecode::Value, String> {
+    match &args[0] {
+        bytecode::Value::Function(closure) => {
+            disassemble_chunk(&closure.function.chunk, "");
+            Ok(bytecode::Value::Nil)
+        }
+        _ => Err(format!(
+            "Expected function, got {:?}.",
+            bytecode::type_of(&args[0])
+        )),
     }
 }
 
@@ -84,6 +102,14 @@ impl Default for Interpreter {
         };
         res.stack.reserve(256);
         res.frames.reserve(64);
+        res.globals.insert(
+            String::from("disassemble"),
+            bytecode::Value::NativeFunction(bytecode::NativeFunction {
+                arity: 1,
+                name: String::from("disassemble"),
+                func: disassemble_builtin,
+            }),
+        );
         res.globals.insert(
             String::from("clock"),
             bytecode::Value::NativeFunction(bytecode::NativeFunction {
@@ -138,7 +164,7 @@ struct CallFrame {
 
 impl CallFrame {
     fn next_op(&mut self) -> (bytecode::Op, bytecode::Lineno) {
-        let res = self.closure.function.chunk.code[self.ip];
+        let res = self.closure.function.chunk.code[self.ip].clone();
         self.ip += 1;
         res
     }
@@ -194,7 +220,7 @@ impl Interpreter {
                     }
                     self.stack.push(result);
                 }
-                (bytecode::Op::Closure(idx), _) => {
+                (bytecode::Op::Closure(idx, _), _) => {
                     let constant = self.read_constant(idx).clone();
 
                     if let bytecode::Value::Function(closure) = constant {

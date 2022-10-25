@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Op {
     Return,
     Constant(usize),
-    Closure(usize),
+    Closure(usize, Vec<Upvalue>),
     Nil,
     True,
     False,
@@ -72,6 +72,19 @@ pub struct NativeFunction {
     pub arity: u8,
     pub name: String,
     pub func: fn(Vec<Value>) -> Result<Value, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
+pub enum IsLocal {
+    True,
+    False,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
+#[allow(dead_code)]
+pub struct Upvalue {
+    pub local_idx: usize,
+    pub is_local: IsLocal,
 }
 
 pub fn type_of(value: &Value) -> Type {

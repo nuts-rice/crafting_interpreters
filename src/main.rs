@@ -15,6 +15,7 @@ mod scanner;
 static INPUT_STR: &str = "INPUT";
 static SHOW_TOKENS_STR: &str = "tokens";
 static SHOW_AST_STR: &str = "ast";
+static SHOW_BYTECODE_STR: &str = "show-bytecode";
 static BYTECODE_STR: &str = "bytecode";
 
 fn main() {
@@ -38,21 +39,29 @@ fn main() {
                 .help("shows AST"),
         )
         .arg(
-            Arg::with_name(BYTECODE_STR)
+            Arg::with_name(SHOW_BYTECODE_STR)
                 .long("--show-bytecode")
                 .takes_value(false)
-                .help("shows bytecode"),
+                .help("shows full bytecode"),
+        )
+        .arg(
+            Arg::with_name(BYTECODE_STR)
+                .long("--bytecode")
+                .takes_value(false)
+                .help("shows short bytecode"),
         )
         .get_matches();
     if let Some(input_file) = matches.value_of(INPUT_STR) {
         let maybe_input = fs::read_to_string(input_file);
         match maybe_input {
             Ok(input) => {
-                if matches.is_present(BYTECODE_STR) {
+                if matches.is_present(SHOW_BYTECODE_STR) || matches.is_present(BYTECODE_STR) {
                     let func_or_err = compiler::Compiler::compile(input);
                     match func_or_err {
                         Ok(func) => {
-                            bytecode_interp::dissassemble_chunk(&func.chunk, input_file);
+                            if matches.is_present(SHOW_BYTECODE_STR) {
+                                bytecode_interp::disassemble_chunk(&func.chunk, input_file);
+                            }
                             let res = bytecode_interp::Interpreter::default().interpret(func);
                             match res {
                                 Ok(()) => {
