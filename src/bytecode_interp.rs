@@ -1,5 +1,6 @@
 use crate::bytecode;
 use crate::native_functions;
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -90,15 +91,16 @@ pub struct Interpreter {
     stack: Vec<bytecode::Value>,
     output: Vec<String>,
     globals: HashMap<String, bytecode::Value>,
+    upvalues: Vec<bytecode::Upvalue>,
 }
 
 impl Default for Interpreter {
     fn default() -> Interpreter {
         let mut res = Interpreter {
-            frames: Vec::new(),
-            stack: Vec::new(),
-            output: Vec::new(),
-            globals: HashMap::new(),
+            frames: Default::default(),
+            stack: Default::default(),
+            output: Default::default(),
+            globals: Default::default(),
         };
         res.stack.reserve(256);
         res.frames.reserve(64);
@@ -180,6 +182,7 @@ impl Interpreter {
         self.stack
             .push(bytecode::Value::Function(bytecode::Closure {
                 function: func.clone(),
+                upvalues: Vec::new(),
             }));
         self.frames.push(CallFrame {
             closure: bytecode::Closure { function: func },
@@ -447,10 +450,20 @@ impl Interpreter {
                     }
                 }
                 (bytecode::Op::GetUpVal(_), _) => {
-                    unimplemented!();
+                    let upval = self.frame().closure.upvals[idx].clone();
+                    let val = match &*upval.borrow() {
+                        bytecode::Upvalue::Closed(value) => value.clone(),
+                        bytecode::Upvalue::Open(stack_idx) => self.stack[*stack_idx].clone(),
+                    };
+                    self.stack.push(val);
                 }
                 (bytecode::Op::SetUpVal(_), _) => {
-                    unimplemented!();
+                    let new_value = self.peek().clone();
+                    let upval = self.frame().closure.upvals[idx].clone();
+                    match &mut *upval.borrow_mut() {
+                        bytecode::Upvalue::Closed(value) => *value = new_value,
+                        bytecode::Upvalue::Open(stack_idx) => self.stack[stack_idx] = new_value,
+                    };
                 }
             }
         }

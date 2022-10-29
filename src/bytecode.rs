@@ -6,7 +6,7 @@ use std::fmt;
 pub enum Op {
     Return,
     Constant(usize),
-    Closure(usize, Vec<Upvalue>),
+    Closure(usize, Vec<UpvalLocal>),
     Nil,
     True,
     False,
@@ -35,7 +35,6 @@ pub enum Op {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum Value {
     Number(f64),
     Bool(bool),
@@ -58,6 +57,7 @@ pub enum Type {
 #[derive(Default, Clone)]
 pub struct Closure {
     pub function: Function,
+    pub upvalues: Vec<Upvalue>,
 }
 
 #[derive(Default, Clone)]
@@ -74,6 +74,11 @@ pub struct NativeFunction {
     pub func: fn(Vec<Value>) -> Result<Value, String>,
 }
 
+pub enum UpvalLocal {
+    Upvalue(usize),
+    Local(usize),
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
 pub enum IsLocal {
     True,
@@ -85,6 +90,13 @@ pub enum IsLocal {
 pub struct Upvalue {
     pub local_idx: usize,
     pub is_local: IsLocal,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum Upvalue {
+    Open(usize),
+    Closed(usize),
 }
 
 pub fn type_of(value: &Value) -> Type {
