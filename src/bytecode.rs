@@ -32,6 +32,7 @@ pub enum Op {
     Jump(usize),
     Loop(usize),
     Call(u8),
+    CloseUpvalue,
 }
 
 #[derive(Clone)]
@@ -74,29 +75,26 @@ pub struct NativeFunction {
     pub func: fn(Vec<Value>) -> Result<Value, String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
 pub enum UpvalLocal {
     Upvalue(usize),
     Local(usize),
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
-pub enum IsLocal {
-    True,
-    False,
-}
-
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
-#[allow(dead_code)]
-pub struct Upvalue {
-    pub local_idx: usize,
-    pub is_local: IsLocal,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum Upvalue {
     Open(usize),
     Closed(usize),
+}
+
+impl Upvalue {
+    pub fn is_open(&self) -> bool {
+        match self {
+            Upvalue::Open(_) => true,
+            Upvalue::Closed(_) => false,
+        }
+    }
 }
 
 pub fn type_of(value: &Value) -> Type {
@@ -128,6 +126,7 @@ pub struct Lineno {
     pub value: usize,
 }
 
+#[allow(non_snake_case)]
 pub fn Lineno(value: usize) -> Lineno {
     Lineno { value }
 }

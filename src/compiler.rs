@@ -29,6 +29,7 @@ enum FunctionType {
 struct Local {
     name: scanner::Token,
     depth: i64,
+    is_captured: bool,
 }
 
 pub struct Level {
@@ -53,6 +54,7 @@ impl Default for Level {
                     col: -1,
                 },
                 depth: 0,
+                is_captured: false,
             }],
             scope_depth: 0,
             upvals: Default::default(),
@@ -187,9 +189,12 @@ impl Compiler {
         let function = std::mem::take(&mut self.current_level_mut().function);
         let upvals = std::mem::take(&mut self.current_level_mut().upvals);
         self.pop_level();
-        let const_idx = self
-            .current_chunk()
-            .add_constant(bytecode::Value::Function(bytecode::Closure { function }));
+        let const_idx =
+            self.current_chunk()
+                .add_constant(bytecode::Value::Function(bytecode::Closure {
+                    upvalues: Vec::new(),
+                    function,
+                }));
         self.emit_op(
             bytecode::Op::Closure(const_idx, upvals),
             self.previous().line,
@@ -289,6 +294,7 @@ impl Compiler {
         self.locals_mut().push(Local {
             name,
             depth: -1, //not yet defined (refer to edge case)
+            is_captured: false,
         });
     }
 
@@ -504,8 +510,12 @@ impl Compiler {
 
         let line = self.previous().line;
         for _ in 0..pop_count {
-            self.emit_op(bytecode::Op::Pop, line);
-            self.locals_mut().pop();
+            let local = self.locals_mut().pop().unwrap();
+            if local.is_captured {
+                self.emit_op(bytecode::Op::CloseUpvalue, line);
+            } else {
+                self.emit_op(bytecode::Op::Pop, line);
+            }
         }
     }
 
@@ -681,34 +691,33 @@ impl Compiler {
         if let Some(local_idx) =
             Compiler::resolve_local_static(&self.levels[self.level_idx - 1], name, self.previous())?
         {
-            return Ok(Some(self.add_upval(local_idx, bytecode::IsLocal::True)));
+            return Ok(Some(self.add_upval(bytecode::UpvalLocal::Local(local_idx))));
         }
 
         self.level_idx -= 1;
         if let Some(upval_idx) = self.resolve_upval(name)?.clone() {
+            self.current_level_mut().locals[upval_idx].is_captured = true;
             self.level_idx += 1;
-            return Ok(Some(self.add_upval(upval_idx, bytecode::IsLocal::False)));
+            return Ok(Some(
+                self.add_upval(bytecode::UpvalLocal::Upvalue(upval_idx)),
+            ));
         }
         self.level_idx += 1;
 
         Ok(None)
     }
 
-    fn add_upval(&mut self, local_idx: usize, is_local: bytecode::IsLocal) -> usize {
-        let queried_upval = bytecode::Upvalue {
-            local_idx,
-            is_local,
-        };
+    fn add_upval(&mut self, upvalue: bytecode::UpvalLocal) -> usize {
         if let Some(res) = self
             .current_level()
             .upvals
             .iter()
-            .position(|query_upval| *query_upval == queried_upval)
+            .position(|query_upval| *query_upval == upvalue)
         {
             return res;
         }
-        self.current_level_mut().upvals.push(queried_upval);
-        self.current_level().upvals.len()
+        self.current_level_mut().upvals.push(upvalue);
+        self.current_level().upvals.len() - 1
     }
 
     //table colum for infix parse used here

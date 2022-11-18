@@ -1,8 +1,10 @@
 use crate::bytecode;
 use crate::native_functions;
 use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 #[allow(dead_code)]
 pub fn disassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
@@ -63,6 +65,7 @@ pub fn disassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
                     chunk.constants[*idx], *idx, upvals
                 )
             }
+            bytecode::Op::CloseUpvalue => format!("OP_CLOSE_UPVALUE"),
         };
         println!(
             "{0: <04}  {1: <30} {2: <30}",
@@ -101,6 +104,7 @@ impl Default for Interpreter {
             stack: Default::default(),
             output: Default::default(),
             globals: Default::default(),
+            upvalues: Default::default(),
         };
         res.stack.reserve(256);
         res.frames.reserve(64);
@@ -185,7 +189,10 @@ impl Interpreter {
                 upvalues: Vec::new(),
             }));
         self.frames.push(CallFrame {
-            closure: bytecode::Closure { function: func },
+            closure: bytecode::Closure {
+                upvalues: Vec::new(),
+                function: func,
+            },
             ip: 0,
             slots_offset: 1,
         });
@@ -223,14 +230,37 @@ impl Interpreter {
                     }
                     self.stack.push(result);
                 }
-                (bytecode::Op::Closure(idx, _), _) => {
+                (bytecode::Op::Closure(idx, upvals), _) => {
                     let constant = self.read_constant(idx).clone();
 
                     if let bytecode::Value::Function(closure) = constant {
-                        self.stack.push(bytecode::Value::Function(closure));
+                        let upvalues = upvals
+                            .iter()
+                            .map(|upval| match upval {
+                                bytecode::UpvalLocal::Upvalue(idx) => {
+                                    self.frame().closure.upvalues[*idx].clone()
+                                }
+                                bytecode::UpvalLocal::Local(idx) => {
+                                    if let Some(upval) = self.find_open_upval(*idx) {
+                                        upval
+                                    } else {
+                                        let index = self.frame().slots_offset + *idx - 1;
+                                        let upval =
+                                            Rc::new(RefCell::new(value::Upvalue::Open(index)));
+                                        self.upvalues.push(upval.clone());
+                                        upval
+                                    }
+                                }
+                            })
+                            .collect();
+                        self.stack
+                            .push(bytecode::Value::Function(bytecode::Closure {
+                                function: closure.function,
+                                upvalues,
+                            }));
                     } else {
                         panic!(
-                            "when interpereting closure, expected function, found {:?}",
+                            "expected function for closure, found {:?}",
                             bytecode::type_of(&constant)
                         );
                     }
@@ -449,21 +479,26 @@ impl Interpreter {
                         }
                     }
                 }
-                (bytecode::Op::GetUpVal(_), _) => {
-                    let upval = self.frame().closure.upvals[idx].clone();
+                (bytecode::Op::GetUpVal(idx), _) => {
+                    let upval = self.frame().closure.upvalues[idx].clone();
                     let val = match &*upval.borrow() {
                         bytecode::Upvalue::Closed(value) => value.clone(),
                         bytecode::Upvalue::Open(stack_idx) => self.stack[*stack_idx].clone(),
                     };
                     self.stack.push(val);
                 }
-                (bytecode::Op::SetUpVal(_), _) => {
+                (bytecode::Op::SetUpVal(idx), _) => {
                     let new_value = self.peek().clone();
-                    let upval = self.frame().closure.upvals[idx].clone();
+                    let upval = self.frame().closure.upvalues[idx].clone();
                     match &mut *upval.borrow_mut() {
                         bytecode::Upvalue::Closed(value) => *value = new_value,
-                        bytecode::Upvalue::Open(stack_idx) => self.stack[stack_idx] = new_value,
+                        bytecode::Upvalue::Open(stack_idx) => self.stack[*stack_idx] = new_value,
                     };
+                }
+                (bytecode::Op::CloseUpvalue, _) => {
+                    let idx = self.stack.len() - 1;
+                    self.close_upvals(idx);
+                    self.stack.pop();
                 }
             }
         }
@@ -543,6 +578,18 @@ impl Interpreter {
         self.output.push(output);
     }
 
+    fn close_upvals(&mut self, index: usize) {
+        let val = &self.stack[index];
+        for upval in &self.upvalues {
+            if let bytecode::Upvalue::Open(idx) = *upval.borrow() {
+                if idx == index {
+                    upval.replace(bytecode::Upvalue::Closed(val.clone()));
+                }
+            }
+        }
+        self.upvalues.retain(|u| u.borrow().is_open());
+    }
+
     fn values_equal(val1: &bytecode::Value, val2: &bytecode::Value) -> bool {
         match (val1, val2) {
             (bytecode::Value::Number(n1), bytecode::Value::Number(n2)) => {
@@ -553,6 +600,17 @@ impl Interpreter {
             (bytecode::Value::Nil, bytecode::Value::Nil) => true,
             (_, _) => false,
         }
+    }
+
+    fn find_open_upval(&self, index: usize) -> Option<Rc<RefCell<bytecode::Upvalue>>> {
+        for upval in self.upvalues.iter().rev() {
+            if let bytecode::Upvalue::Open(idx) = *upval.borrow() {
+                if idx == index {
+                    return Some(upval.clone());
+                }
+            }
+        }
+        None
     }
 
     fn numeric_binop(
