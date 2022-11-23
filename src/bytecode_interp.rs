@@ -94,7 +94,7 @@ pub struct Interpreter {
     stack: Vec<bytecode::Value>,
     output: Vec<String>,
     globals: HashMap<String, bytecode::Value>,
-    upvalues: Vec<bytecode::Upvalue>,
+    upvalues: Vec<Rc<RefCell<bytecode::Upvalue>>>,
 }
 
 impl Default for Interpreter {
@@ -210,7 +210,7 @@ impl Interpreter {
 
     fn run(&mut self) -> Result<(), InterpreterError> {
         loop {
-            if self.frames.len() == 0
+            if self.frames.is_empty()
                 || self.frame().ip >= self.frame().closure.function.chunk.code.len()
             {
                 return Ok(());
@@ -220,6 +220,9 @@ impl Interpreter {
             match op {
                 (bytecode::Op::Return, _) => {
                     let result = self.pop_stack();
+                    for idx in self.frame().slots_offset..self.stack.len() {
+                        self.close_upvals(idx);
+                    }
                     let num_to_pop = self.stack.len() - self.frame().slots_offset
                         + usize::from(self.frame().closure.function.arity);
                     self.frames.pop();
@@ -244,9 +247,9 @@ impl Interpreter {
                                     if let Some(upval) = self.find_open_upval(*idx) {
                                         upval
                                     } else {
-                                        let index = self.frame().slots_offset + *idx - 1;
+                                        let index = self.frame().slots_offset + *idx;
                                         let upval =
-                                            Rc::new(RefCell::new(value::Upvalue::Open(index)));
+                                            Rc::new(RefCell::new(bytecode::Upvalue::Open(index)));
                                         self.upvalues.push(upval.clone());
                                         upval
                                     }
@@ -489,10 +492,12 @@ impl Interpreter {
                 }
                 (bytecode::Op::SetUpVal(idx), _) => {
                     let new_value = self.peek().clone();
-                    let upval = self.frame().closure.upvalues[idx].clone();
-                    match &mut *upval.borrow_mut() {
+                    let upvalue = self.frame().closure.upvalues[idx].clone();
+                    match &mut *upvalue.borrow_mut() {
                         bytecode::Upvalue::Closed(value) => *value = new_value,
-                        bytecode::Upvalue::Open(stack_idx) => self.stack[*stack_idx] = new_value,
+                        bytecode::Upvalue::Open(stack_index) => {
+                            self.stack[*stack_index] = new_value
+                        }
                     };
                 }
                 (bytecode::Op::CloseUpvalue, _) => {
@@ -581,10 +586,8 @@ impl Interpreter {
     fn close_upvals(&mut self, index: usize) {
         let val = &self.stack[index];
         for upval in &self.upvalues {
-            if let bytecode::Upvalue::Open(idx) = *upval.borrow() {
-                if idx == index {
-                    upval.replace(bytecode::Upvalue::Closed(val.clone()));
-                }
+            if upval.borrow().is_open_with_idx(index) {
+                upval.replace(bytecode::Upvalue::Closed(val.clone()));
             }
         }
         self.upvalues.retain(|u| u.borrow().is_open());
@@ -604,10 +607,8 @@ impl Interpreter {
 
     fn find_open_upval(&self, index: usize) -> Option<Rc<RefCell<bytecode::Upvalue>>> {
         for upval in self.upvalues.iter().rev() {
-            if let bytecode::Upvalue::Open(idx) = *upval.borrow() {
-                if idx == index {
-                    return Some(upval.clone());
-                }
+            if upval.borrow().is_open_with_idx(index) {
+                return Some(upval.clone());
             }
         }
         None

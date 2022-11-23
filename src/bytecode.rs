@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
@@ -58,7 +60,7 @@ pub enum Type {
 #[derive(Default, Clone)]
 pub struct Closure {
     pub function: Function,
-    pub upvalues: Vec<Upvalue>,
+    pub upvalues: Vec<Rc<RefCell<Upvalue>>>,
 }
 
 #[derive(Default, Clone)]
@@ -81,17 +83,24 @@ pub enum UpvalLocal {
     Local(usize),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Upvalue {
     Open(usize),
-    Closed(usize),
+    Closed(Value),
 }
 
 impl Upvalue {
     pub fn is_open(&self) -> bool {
         match self {
             Upvalue::Open(_) => true,
+            Upvalue::Closed(_) => false,
+        }
+    }
+
+    pub fn is_open_with_idx(&self, index: usize) -> bool {
+        match self {
+            Upvalue::Open(idx) => index == *idx,
             Upvalue::Closed(_) => false,
         }
     }
