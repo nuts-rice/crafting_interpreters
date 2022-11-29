@@ -491,15 +491,19 @@ impl Interpreter {
                     self.stack.push(val);
                 }
                 (bytecode::Op::SetUpVal(idx), _) => {
+                    unimplemented!()
+                }
+                /*
                     let new_value = self.peek().clone();
                     let upvalue = self.frame().closure.upvalues[idx].clone();
-                    match &mut *upvalue.borrow_mut() {
+                    match &*upvalue.borrow_mut() {
                         bytecode::Upvalue::Closed(value) => *value = new_value,
                         bytecode::Upvalue::Open(stack_index) => {
                             self.stack[*stack_index] = new_value
                         }
                     };
                 }
+                */
                 (bytecode::Op::CloseUpvalue, _) => {
                     let idx = self.stack.len() - 1;
                     self.close_upvals(idx);
