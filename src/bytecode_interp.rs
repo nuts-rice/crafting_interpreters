@@ -1090,4 +1090,64 @@ mod tests {
             Err(err) => panic!("{}", err),
         }
     }
+    #[test]
+    fn get_upvals_test() {
+        let func_or_err = Compiler::compile(String::from(
+            "fun outer() {\n\
+               var x = \"outside\";\n\
+               fun inner() {\n\
+                 print x;\n\
+               }\n\
+               inner();\n\
+             }\n\
+             outer();",
+        ));
+        match func_or_err {
+            Ok(func) => {
+                let mut interp = Interpreter::default();
+                let mut res = interp.interpret(func);
+                match res {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["outside"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{:?}", err),
+        }
+    }
+
+    #[test]
+    fn closing_upvals_test() {
+        let func_or_err = Compiler::compile(String::from(
+            "fun outer() {\n\
+               var x = \"outside\";\n\
+               fun inner() {\n\
+                 print x;\n\
+               }\n\
+               \n\
+               return inner;\n\
+            }\n\
+            \n\
+            var closure = outer();\n\
+            closure();",
+        ));
+        match func_or_err {
+            Ok(func) => {
+                let mut interp = Interpreter::default();
+                let res = interp.interpret(func);
+                match res {
+                    Ok(()) => {
+                        assert_eq!(interp.output, vec!["outside"]);
+                    }
+                    Err(err) => {
+                        panic!("{:?}", err);
+                    }
+                }
+            }
+            Err(err) => panic!("{:?}", err),
+        }
+    }
 }
