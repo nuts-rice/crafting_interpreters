@@ -1,9 +1,9 @@
 use crate::bytecode;
 use crate::native_functions;
-use std::borrow::BorrowMut;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
+
 use std::rc::Rc;
 
 #[allow(dead_code)]
@@ -490,7 +490,7 @@ impl Interpreter {
                     };
                     self.stack.push(val);
                 }
-                (bytecode::Op::SetUpVal(idx), _) => {
+                (bytecode::Op::SetUpVal(_idx), _) => {
                     unimplemented!()
                 }
                 /*
@@ -1105,7 +1105,7 @@ mod tests {
         match func_or_err {
             Ok(func) => {
                 let mut interp = Interpreter::default();
-                let mut res = interp.interpret(func);
+                let res = interp.interpret(func);
                 match res {
                     Ok(()) => {
                         assert_eq!(interp.output, vec!["outside"]);

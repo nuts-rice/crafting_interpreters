@@ -21,7 +21,7 @@ pub fn sqrt(args: Vec<bytecode::Value>) -> Result<bytecode::Value, String> {
     }
 }
 
-pub fn clock(args: Vec<bytecode::Value>) -> Result<bytecode::Value, String> {
+pub fn clock(_args: Vec<bytecode::Value>) -> Result<bytecode::Value, String> {
     let start = SystemTime::now();
     let since_epoch = start.duration_since(UNIX_EPOCH).unwrap();
     Ok(bytecode::Value::Number(since_epoch.as_millis() as f64))

@@ -1,6 +1,6 @@
 use crate::bytecode;
 use crate::scanner;
-use std::mem;
+
 
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
