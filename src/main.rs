@@ -7,6 +7,8 @@ mod bytecode;
 mod bytecode_interp;
 mod compiler;
 mod expr;
+mod garbage_collector;
+mod garbage_collector_vals;
 mod interpreter;
 mod native_functions;
 mod parser;
