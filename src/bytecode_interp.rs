@@ -1,4 +1,6 @@
 use crate::bytecode;
+use crate::garbage_collector;
+
 use crate::native_functions;
 
 use std::cell::RefCell;
@@ -95,6 +97,7 @@ pub struct Interpreter {
     output: Vec<String>,
     globals: HashMap<String, bytecode::Value>,
     upvalues: Vec<Rc<RefCell<bytecode::Upvalue>>>,
+    heap: garbage_collector::Heap,
 }
 
 impl Default for Interpreter {
@@ -105,6 +108,7 @@ impl Default for Interpreter {
             output: Default::default(),
             globals: Default::default(),
             upvalues: Default::default(),
+            heap: Default::default(),
         };
         res.stack.reserve(256);
         res.frames.reserve(64);

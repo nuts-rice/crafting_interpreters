@@ -1,7 +1,6 @@
 use crate::bytecode;
 use crate::scanner;
 
-
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
     token_idx: usize,
