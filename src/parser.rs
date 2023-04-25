@@ -2,21 +2,14 @@ use crate::expr;
 use crate::scanner;
 
 #[allow(dead_code)]
+#[derive(Default)]
 struct Parser {
     tokens: Vec<scanner::Token>,
     current: usize,
     in_funcdec: bool,
 }
 
-impl Default for Parser {
-    fn default() -> Parser {
-        Parser {
-            tokens: Vec::new(),
-            current: 0,
-            in_funcdec: false,
-        }
-    }
-}
+
 
 pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
     let mut p = Parser {
@@ -650,12 +643,10 @@ impl Parser {
         }
         if self.matches(scanner::TokenType::LeftParen) {
             let expr = Box::new(self.expression()?);
-            if let Err(err) = self.consume(
+            self.consume(
                 scanner::TokenType::RightParen,
                 "Expected ')' after expression.",
-            ) {
-                return Err(err);
-            }
+            )?;
             return Ok(expr::Expr::Grouping(expr));
         }
         Err(format!(

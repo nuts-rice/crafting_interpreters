@@ -1,9 +1,7 @@
 use crate::bytecode;
-use crate::garbage_collector_vals;
 
 enum GCData {
     String(String),
-    #[allow(dead_code)]
     Closure(bytecode::Closure),
 }
 
@@ -40,30 +38,39 @@ impl GCval {
 }
 #[derive(Default)]
 pub struct Heap {
-    id_counter: garbage_collector_vals::Id,
+    bytes_allocated: usize,
+    next_gc: usize,
     values: Vec<GCval>,
 }
 
 impl Heap {
     #[allow(dead_code)]
-    pub fn manage_str(&mut self, s: String) -> garbage_collector_vals::GcString {
+    pub fn manage_str(&mut self, s: String) -> usize {
         self.values.push(GCval::from(GCData::String(s)));
-        garbage_collector_vals::GcString(self.values.len() - 1)
+        self.values.len() - 1
     }
 
     #[allow(dead_code)]
-    pub fn manage_closure(&mut self, c: bytecode::Closure) -> garbage_collector_vals::GcClosure {
+    pub fn manage_closure(&mut self, c: bytecode::Closure) -> usize {
         self.values.push(GCval::from(GCData::Closure(c)));
-        garbage_collector_vals::GcClosure(self.values.len() - 1)
+        self.values.len() - 1
     }
 
     #[allow(dead_code)]
-    pub fn get_str(&self, s: garbage_collector_vals::GcString) -> &String {
-        self.values[s.0].data.as_str().unwrap()
+    pub fn get_str(&self, id: usize) -> &String {
+        self.values[id].data.as_str().unwrap()
     }
 
     #[allow(dead_code)]
-    pub fn get_closure(&self, c: garbage_collector_vals::GcClosure) -> &bytecode::Closure {
-        self.values[c.0].data.as_closure().unwrap()
+    pub fn get_closure(&self, id: usize) -> &bytecode::Closure {
+        self.values[id].data.as_closure().unwrap()
+    }
+
+    pub fn mark(&mut self, id: usize) {
+        self.values[id].is_marked = true;
+    }
+
+    pub fn mark_closure(&mut self, id: usize) {
+        self.values[id].is_marked = true;
     }
 }

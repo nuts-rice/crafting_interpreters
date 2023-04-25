@@ -627,9 +627,7 @@ impl Interpreter {
             expr::Expr::Assign(sym, val_expr) => {
                 let val = self.interpret_expr(val_expr)?;
 
-                if let Err(err) = self.env.assign(sym.clone(), &val) {
-                    return Err(err);
-                }
+                self.env.assign(sym.clone(), &val)?;
                 Ok(val)
             }
             expr::Expr::Logical(left_expr, expr::LogicalOp::Or, right_expr) => {

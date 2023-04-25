@@ -1,6 +1,7 @@
 use crate::bytecode;
 use crate::scanner;
 
+
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
     token_idx: usize,
@@ -37,7 +38,7 @@ pub struct Level {
     function_type: FunctionType,
     locals: Vec<Local>,
     scope_depth: i64,
-    upvals: Vec<bytecode::UpvalLocal>,
+    upvals: Vec<bytecode::UpvalueLoc>,
 }
 
 impl Default for Level {
@@ -191,9 +192,9 @@ impl Compiler {
         self.pop_level();
         let const_idx =
             self.current_chunk()
-                .add_constant(bytecode::Value::Function(bytecode::Closure {
-                    upvalues: Vec::new(),
+                .add_constant(bytecode::Constant::Function(bytecode::Closure {
                     function,
+                    upvalues: Vec::new(),
                 }));
         self.emit_op(
             bytecode::Op::Closure(const_idx, upvals),
@@ -452,17 +453,12 @@ impl Compiler {
 
     fn while_statement(&mut self) -> Result<(), String> {
         let loop_start = self.current_chunk().code.len();
-        if let Err(err) = self.consume(scanner::TokenType::LeftParen, "expected '(' after 'while'.")
-        {
-            return Err(err);
-        }
+        self.consume(scanner::TokenType::LeftParen, "expected '(' after 'while'.")?;
         self.expression()?;
-        if let Err(err) = self.consume(
+        self.consume(
             scanner::TokenType::RightParen,
             "Expected ')' after condition",
-        ) {
-            return Err(err);
-        }
+        )?;
         let exit_jump = self.emit_jump(bytecode::Op::JumpIfFalse(0));
         self.emit_op(bytecode::Op::Pop, self.previous().line);
         self.statement()?;
@@ -522,12 +518,10 @@ impl Compiler {
 
     fn expression_statement(&mut self) -> Result<(), String> {
         self.expression()?;
-        if let Err(err) = self.consume(
+        self.consume(
             scanner::TokenType::Semicolon,
             "expected ';' after expression.",
-        ) {
-            return Err(err);
-        }
+        )?;
         let line = self.previous().line;
         self.emit_op(bytecode::Op::Pop, line);
         Ok(())
@@ -535,9 +529,7 @@ impl Compiler {
 
     fn print_statement(&mut self) -> Result<(), String> {
         self.expression()?;
-        if let Err(err) = self.consume(scanner::TokenType::Semicolon, "expected ';' after val") {
-            return Err(err);
-        }
+        self.consume(scanner::TokenType::Semicolon, "expected ';' after val")?;
         self.emit_op(bytecode::Op::Print, self.previous().clone().line);
         Ok(())
     }
@@ -675,10 +667,10 @@ impl Compiler {
     }
 
     fn resolve_var(&mut self, name: &String) -> Result<Resolution, String> {
-        if let Some(idx) = self.resolve_local(&name)? {
+        if let Some(idx) = self.resolve_local(name)? {
             return Ok(Resolution::Local(idx));
         }
-        if let Some(idx) = self.resolve_upval(&name)? {
+        if let Some(idx) = self.resolve_upval(name)? {
             return Ok(Resolution::UpValue(idx));
         }
 
@@ -692,15 +684,15 @@ impl Compiler {
         if let Some(local_idx) =
             Compiler::resolve_local_static(&self.levels[self.level_idx - 1], name, self.previous())?
         {
-            return Ok(Some(self.add_upval(bytecode::UpvalLocal::Local(local_idx))));
+            return Ok(Some(self.add_upval(bytecode::UpvalueLoc::Local(local_idx))));
         }
 
         self.level_idx -= 1;
-        if let Some(upval_idx) = self.resolve_upval(name)?.clone() {
+        if let Some(upval_idx) = self.resolve_upval(name)? {
             self.current_level_mut().locals[upval_idx].is_captured = true;
             self.level_idx += 1;
             return Ok(Some(
-                self.add_upval(bytecode::UpvalLocal::Upvalue(upval_idx)),
+                self.add_upval(bytecode::UpvalueLoc::Upvalue(upval_idx)), 
             ));
         }
         self.level_idx += 1;
@@ -708,7 +700,7 @@ impl Compiler {
         Ok(None)
     }
 
-    fn add_upval(&mut self, upvalue: bytecode::UpvalLocal) -> usize {
+    fn add_upval(&mut self, upvalue: bytecode::UpvalueLoc) -> usize {
         if let Some(res) = self
             .current_level()
             .upvals
