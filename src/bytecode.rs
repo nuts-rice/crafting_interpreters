@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
-
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Op {
@@ -51,7 +47,6 @@ pub enum UpvalueLoc {
     Local(/*stack idx*/ usize),
 }
 
-
 #[derive(Default, Copy, Clone, Debug)]
 pub struct Lineno {
     pub value: usize,
@@ -74,7 +69,6 @@ pub struct Closure {
     pub function: Function,
     pub upvalues: Vec<UpvalueLoc>,
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct Chunk {

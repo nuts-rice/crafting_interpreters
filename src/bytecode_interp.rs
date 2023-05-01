@@ -1,8 +1,7 @@
 use crate::bytecode;
 use crate::garbage_collector;
-use crate::value;   
+use crate::value;
 
-use crate::garbage_collector_vals;
 use crate::interpreter::Value;
 use crate::native_functions;
 
@@ -20,7 +19,7 @@ pub fn disassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
     for (idx, constant) in chunk.constants.iter().enumerate() {
         println!("{:<4} {:?}", idx, constant);
     }
-    println!("==== code ====");
+    println!("\n==== code ====");
     for (idx, (op, lineno)) in chunk.code.iter().enumerate() {
         let formatted_op = match op {
             bytecode::Op::Return => format!("OP_RETURN"),
@@ -81,12 +80,15 @@ pub fn disassemble_chunk(chunk: &bytecode::Chunk, name: &str) {
     }
 }
 
-fn disassemble_builtin(heap: &garbage_collector::Heap, args: Vec<value::Value>) -> Result<value::Value, String> {
+fn disassemble_builtin(
+    heap: &garbage_collector::Heap,
+    args: Vec<value::Value>,
+) -> Result<value::Value, String> {
     match &args[0] {
         value::Value::Function(closure_handle) => {
             let closure = heap.get_closure(*closure_handle);
             disassemble_chunk(&closure.function.chunk, "");
-            Ok(Value::Nil)
+            Ok(value::Value::Nil)
         }
         _ => Err(format!(
             "Expected function, got {:?}.",
@@ -97,11 +99,12 @@ fn disassemble_builtin(heap: &garbage_collector::Heap, args: Vec<value::Value>) 
 
 pub struct Interpreter {
     frames: Vec<CallFrame>,
-    stack: Vec<bytecode::Constant>,
+    stack: Vec<value::Value>,
     output: Vec<String>,
-    globals: HashMap<String, bytecode::Constant>,
+    globals: HashMap<String, value::Value>,
     upvalues: Vec<Rc<RefCell<value::Upvalue>>>,
     heap: garbage_collector::Heap,
+    gray_gc_stack: Vec<usize>,
 }
 
 impl Default for Interpreter {
@@ -113,12 +116,13 @@ impl Default for Interpreter {
             globals: Default::default(),
             upvalues: Default::default(),
             heap: Default::default(),
+            gray_gc_stack: Default::default(),
         };
         res.stack.reserve(256);
         res.frames.reserve(64);
         res.globals.insert(
             String::from("disassemble"),
-            bytecode::Constant::NativeFunction(bytecode::NativeFunction {
+            value::Value::NativeFunction(value::NativeFunction {
                 arity: 1,
                 name: String::from("disassemble"),
                 func: disassemble_builtin,
@@ -126,7 +130,7 @@ impl Default for Interpreter {
         );
         res.globals.insert(
             String::from("clock"),
-            bytecode::Constant::NativeFunction(bytecode::NativeFunction {
+            value::Value::NativeFunction(value::NativeFunction {
                 arity: 0,
                 name: String::from("clock"),
                 func: native_functions::clock,
@@ -134,7 +138,7 @@ impl Default for Interpreter {
         );
         res.globals.insert(
             String::from("exponent"),
-            bytecode::Constant::NativeFunction(bytecode::NativeFunction {
+            value::Value::NativeFunction(value::NativeFunction {
                 arity: 1,
                 name: String::from("exponent"),
                 func: native_functions::exponent,
@@ -142,7 +146,7 @@ impl Default for Interpreter {
         );
         res.globals.insert(
             String::from("sqrt"),
-            bytecode::Constant::NativeFunction(bytecode::NativeFunction {
+            value::Value::NativeFunction(value::NativeFunction {
                 arity: 1,
                 name: String::from("sqrt"),
                 func: native_functions::sqrt,
@@ -171,16 +175,16 @@ pub enum InterpreterError {
 
 #[derive(Default)]
 struct CallFrame {
-    closure: value::Closure,
+    closure: bytecode::Closure,
     ip: usize,
     slots_offset: usize,
 }
 
 impl CallFrame {
-    fn next_op(&mut self) -> (bytecode::Op, bytecode::Lineno) {
-        let res = self.closure.function.chunk.code[self.ip].clone();
+    fn next_op(&mut self) -> (&bytecode::Op, &bytecode::Lineno) {
+        let res = self.closure.function.chunk.code[self.ip];
         self.ip += 1;
-        res
+        &res
     }
 
     fn read_constant(&self, idx: usize) -> &bytecode::Constant {
@@ -197,17 +201,18 @@ impl Interpreter {
     }
 
     fn push_managed_closure(&mut self, func: bytecode::Function) {
-        let closure = value::Closure {
+        let closure = bytecode::Closure {
             function: func,
             upvalues: Vec::new(),
         };
         let managed_closure = self.heap.manage_closure(closure);
-        self.stack.push(bytecode::Constant::Function(managed_closure));
+        self.stack
+            .push(bytecode::Constant::Function(managed_closure));
     }
 
     fn push_call_frame(&mut self, func: bytecode::Function) {
         let call_frame = CallFrame {
-            closure: value::Closure {
+            closure: bytecode::Closure {
                 upvalues: Vec::new(),
                 function: func,
             },
@@ -216,7 +221,6 @@ impl Interpreter {
         };
         self.frames.push(call_frame);
     }
-
 
     fn frame_mut(&mut self) -> &mut CallFrame {
         let last_frame_index = self.frames.len() - 1;
@@ -279,10 +283,10 @@ impl Interpreter {
                             .collect();
                         self.stack
                             .push(value::Value::Function(self.heap.manage_closure(
-                                        value::Closure {
-                                            function: closure.function,
-                                            upvalues,
-                                        },
+                                bytecode::Closure {
+                                    function: closure.function,
+                                    upvalues,
+                                },
                             )));
                     } else {
                         panic!(
@@ -379,15 +383,16 @@ impl Interpreter {
                     }
                 }
                 (bytecode::Op::GetGlobal(idx), lineno) => {
-                    if let value::Value::String(name) = self.read_constant(idx) {
-                        match self.globals.get(self.get_str(&name) {
+                    if let value::Value::String(name_id) = self.read_constant(idx) {
+                        match self.globals.get(self.get_str(name_id)) {
                             Some(val) => {
                                 self.stack.push(val.clone());
                             }
                             None => {
                                 return Err(InterpreterError::Runtime(format!(
                                     "undefined variable '{}' at line {}",
-                                    self.get_str(&name), lineno.value
+                                    self.get_str(name_id),
+                                    lineno.value
                                 )));
                             }
                         }
@@ -558,8 +563,8 @@ impl Interpreter {
         }
     }
 
-    fn call(&mut self, closure_handle: garbage_collector_vals::GcClosure, arg_count: u8) -> Result<(), InterpreterError> {
-        let closure = self.get_closure(&closure_handle).clone();
+    fn call(&mut self, closure_handle: usize, arg_count: u8) -> Result<(), InterpreterError> {
+        let closure = self.get_closure(&closure_handle);
         let func = &closure.function;
         if arg_count != func.arity {
             return Err(InterpreterError::Runtime(format!(
@@ -722,7 +727,7 @@ impl Interpreter {
             bytecode::Constant::Number(num) => value::Value::Number(num),
             bytecode::Constant::String(s) => value::Value::String(self.heap.manage_closure(s)),
             bytecode::Constant::Function(f) => {
-                value::Value::Function(self.heap.manage_closure(value::Closure{
+                value::Value::Function(self.heap.manage_closure(bytecode::Closure {
                     function: f.function,
                     upvalues: Vec::new(),
                 }))
@@ -744,21 +749,39 @@ impl Interpreter {
         }
     }
 
-    fn get_str(&self, str_handle: &garbage_collector_vals::GcString) -> &String {
-        self.heap.get_str(&str_handle)
+    fn get_str(&self, str_handle: usize) -> &String {
+        self.heap.get_str(str_handle)
     }
 
-    fn get_closure(&self, closure_handle: &garbage_collector_vals::GcClosure) -> &value::Closure {
-        self.heap.get_closure(&closure_handle)
+    fn get_closure(&self, closure_handle: usize) -> &bytecode::Closure {
+        self.heap.get_closure(closure_handle)
     }
-
-
-
 
     fn collect_garbage(&mut self) {
+        self.heap.unmark();
         self.mark_roots();
+        self.heap.sweep();
     }
 
+    fn trace_references(&mut self) {
+        loop {
+            let maybe_val = self.gray_gc_stack.pop();
+            match maybe_val {
+                Some(val) => self.blacken_object(val),
+                None => break,
+            }
+        }
+    }
+
+    //need specific code statement for each type
+
+    fn blacken_object(&mut self, val: usize) {
+        todo!()
+    }
+
+    //strings and native functions contain no outgoing refs so dont traverse them
+    //closed upvals when closed contain refrence to closed over val. Trace this ref here
+    //Functions has ref to Objstring constaing fns name and constant table with refs to other objects
     fn mark_roots(&mut self) {
         todo!()
     }

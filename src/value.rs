@@ -2,9 +2,6 @@ use std::fmt;
 
 use crate::garbage_collector;
 
-
-
-
 #[derive(Clone)]
 #[allow(dead_code)]
 pub enum Upvalue {
@@ -43,7 +40,7 @@ pub enum Value {
     Nil,
     String(String),
     Function(usize),
-    NativeFunction(NativeFunction)
+    NativeFunction(NativeFunction),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

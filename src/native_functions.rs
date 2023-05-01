@@ -1,9 +1,11 @@
-
 use crate::garbage_collector;
 use crate::value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub fn exponent(_heap: &garbage_collector::Heap, args: Vec<value::Value>) -> Result<value::Value, String> {
+pub fn exponent(
+    _heap: &garbage_collector::Heap,
+    args: Vec<value::Value>,
+) -> Result<value::Value, String> {
     match args[0] {
         value::Value::Number(num) => Ok(value::Value::Number(num.exp())),
         _ => Err(format!(
@@ -13,7 +15,10 @@ pub fn exponent(_heap: &garbage_collector::Heap, args: Vec<value::Value>) -> Res
     }
 }
 
-pub fn sqrt(_heap: &garbage_collector::Heap, args: Vec<value::Value>) -> Result<value::Value, String> {
+pub fn sqrt(
+    _heap: &garbage_collector::Heap,
+    args: Vec<value::Value>,
+) -> Result<value::Value, String> {
     match args[0] {
         value::Value::Number(num) => Ok(value::Value::Number(num.sqrt())),
         _ => Err(format!(

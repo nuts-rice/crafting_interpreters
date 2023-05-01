@@ -1,7 +1,6 @@
 use crate::bytecode;
 use crate::scanner;
 
-
 pub struct Compiler {
     tokens: Vec<scanner::Token>,
     token_idx: usize,
@@ -190,12 +189,12 @@ impl Compiler {
         let function = std::mem::take(&mut self.current_level_mut().function);
         let upvals = std::mem::take(&mut self.current_level_mut().upvals);
         self.pop_level();
-        let const_idx =
-            self.current_chunk()
-                .add_constant(bytecode::Constant::Function(bytecode::Closure {
-                    function,
-                    upvalues: Vec::new(),
-                }));
+        let const_idx = self
+            .current_chunk()
+            .add_constant(bytecode::Constant::Function(bytecode::Closure {
+                function,
+                upvalues: Vec::new(),
+            }));
         self.emit_op(
             bytecode::Op::Closure(const_idx, upvals),
             self.previous().line,
@@ -692,7 +691,7 @@ impl Compiler {
             self.current_level_mut().locals[upval_idx].is_captured = true;
             self.level_idx += 1;
             return Ok(Some(
-                self.add_upval(bytecode::UpvalueLoc::Upvalue(upval_idx)), 
+                self.add_upval(bytecode::UpvalueLoc::Upvalue(upval_idx)),
             ));
         }
         self.level_idx += 1;

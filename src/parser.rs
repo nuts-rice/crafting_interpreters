@@ -9,8 +9,6 @@ struct Parser {
     in_funcdec: bool,
 }
 
-
-
 pub fn parse(tokens: Vec<scanner::Token>) -> Result<Vec<expr::Stmt>, String> {
     let mut p = Parser {
         tokens,

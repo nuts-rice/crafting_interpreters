@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{bytecode};
+use crate::bytecode;
 
 enum GCData {
     String(String),
@@ -108,7 +108,7 @@ impl Heap {
         self.values.get(&id).unwrap().is_marked
     }
 
-    pub fn children(&self, _id:usize) -> Vec<usize> {
+    pub fn children(&self, _id: usize) -> Vec<usize> {
         todo!()
     }
 

@@ -1,8 +1,5 @@
 extern crate clap;
 
-
-
-
 mod bytecode;
 //mod bytecode_interp;
 mod compiler;
@@ -21,7 +18,7 @@ static SHOW_BYTECODE_STR: &str = "show-bytecode";
 static BYTECODE_STR: &str = "bytecode";
 
 fn main() {
-    todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")                            
+    todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")
 
     // let matches = App::new("loxi")
     //     .arg(
@@ -61,14 +58,14 @@ fn main() {
     //         Ok(input) => {
     //             if matches.is_present(SHOW_BYTECODE_STR) || matches.is_present(BYTECODE_STR) {
     //                 let func_or_err = compiler::Compiler::compile(input);
-    //                 todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")                            
+    //                 todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")
     //                 match func_or_err {
     //                     Ok(func) => {
     //                         if matches.is_present(SHOW_BYTECODE_STR) {
-// //                                bytecode_interp::disassemble_chunk(&func.chunk, input_file);
+    // //                                bytecode_interp::disassemble_chunk(&func.chunk, input_file);
     //                         }
-// //                            let res = bytecode_interp::Interpreter::default().interpret(func);
-    //                         todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")                            
+    // //                            let res = bytecode_interp::Interpreter::default().interpret(func);
+    //                         todo!("loads of stuff broken with bytecode interpreter rn, just prototyping")
     //                         // match res {
     //                         //     Ok(()) => {
     //                         //         std::process::exit(0);
